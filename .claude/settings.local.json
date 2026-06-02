@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Read(//Users/jaya-16122/Desktop/**)",
+      "Bash(zip -r \"newsletter-builder-test.zip\" \"newsletter-builder-recovered 3\")",
+      "Bash(zip -r newsletter-builder-test.zip \"newsletter-builder-recovered 3\" --exclude \"*/node_modules/*\" --exclude \"*/.next/*\" --exclude \"*/dist/*\" --exclude \"*/.git/*\")",
+      "Bash(zip -r newsletter-builder-test-1.zip \"newsletter-builder-recovered 3\" --exclude \"*/node_modules/*\" --exclude \"*/.next/*\" --exclude \"*/dist/*\" --exclude \"*/.git/*\")",
+      "Bash(zip -r newsletter-builder-latest.zip \"newsletter-builder-recovered 3\" --exclude \"*/node_modules/*\" --exclude \"*/.next/*\" --exclude \"*/dist/*\" --exclude \"*/.git/*\")",
+      "Bash(zip -r newsletter-builder-jaya.zip \"newsletter-builder-recovered 3\" --exclude \"*/node_modules/*\" --exclude \"*/.next/*\" --exclude \"*/dist/*\" --exclude \"*/.git/*\")",
+      "Bash(zip -r newsletter-builder-final.zip \"newsletter-builder-recovered 3\" --exclude \"*/node_modules/*\" --exclude \"*/.next/*\" --exclude \"*/dist/*\" --exclude \"*/.git/*\")",
+      "Bash(zip -r \"newsletter-builder-final.zip\" \"newsletter-builder-recovered 3\")",
+      "Bash(zip -r \"newsletter-builder-May2.zip\" \"newsletter-builder-recovered 3\")",
+      "Bash(npx vite *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(zip -r \"newsletter-builder-May3.zip\" \"newsletter-builder-recovered 3\")",
+      "Bash(git -C \"/Users/jaya-16122/Desktop/newsletter-builder-recovered 3\" log --oneline)",
+      "Bash(cp \"/Users/jaya-16122/Desktop/newsletter-builder-recovered 3/dist/index.html\" \"/Users/jaya-16122/Desktop/newsletter-builder.html\" && echo \"Done\")",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(awk -F: '{print $1, $2}')",
+      "Bash(awk 'NR>1{print prev_line, prev_name, \" — ends before line\", $1} {prev_line=$1; prev_name=$2}')",
+      "Bash(zip -r \"newsletter-builder-perfect.zip\" \"newsletter-builder-recovered 3\")",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(sed -n '486,500p' \"/Users/jaya-16122/Desktop/newsletter-builder-recovered 3/src/app/components/newsletter-builder/PropertiesPanel.tsx\")",
+      "Bash(sed -n '552,570p' \"/Users/jaya-16122/Desktop/newsletter-builder-recovered 3/src/app/components/newsletter-builder/PropertiesPanel.tsx\")",
+      "Bash(cp -r \"/Users/jaya-16122/Desktop/newsletter-builder-recovered 3\" \"/Users/jaya-16122/Desktop/newsletter-builder-2026-05-13-backup\")",
+      "Bash(zip -r \"newsletter-builder-May23.zip\" \"newsletter-builder-recovered 3\")",
+      "Bash(cp -r \"/Users/jaya-16122/Desktop/newsletter-builder-recovered 3\" \"/Users/jaya-16122/Desktop/newsletter-builder-2026-05-25-backup\" && echo \"Copy complete\")",
+      "Bash(node node_modules/vite/bin/vite.js build)",
+      "Bash(node_modules/.bin/vite build *)"
+    ],
+    "additionalDirectories": [
+      "/Users/jaya-16122/Desktop"
+    ]
+  }
+}
