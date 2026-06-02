@@ -1,7 +1,7 @@
 
-  # Implement Feature
+  # Newsletter Builder
 
-  This is a code bundle for Implement Feature. The original project is available at https://www.figma.com/design/9xwGvtThVqdXfKagsbr2Rt/Implement-Feature.
+  This is a code bundle for Newsletter Builder. The original project is available at https://www.figma.com/design/9xwGvtThVqdXfKagsbr2Rt/Implement-Feature.
 
   ## Running the code
 
