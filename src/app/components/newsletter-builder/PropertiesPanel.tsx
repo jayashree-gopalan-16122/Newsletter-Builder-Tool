@@ -12,7 +12,7 @@ import { GradientEditor } from './GradientEditor';
 import {
   Palette, Type, Settings, Image as ImageIcon, Link as LinkIcon, Sliders, ChevronDown,
   ChevronRight, Save, Paintbrush, AlertTriangle,
-  Copy, Trash2, MoveVertical, Sun, Lock, Unlock, Plus, ImagePlus, Square, Link2, LayoutTemplate,
+  Copy, Trash2, MoveVertical, Sun, Lock, Unlock, Plus, ImagePlus, Square, Link2, LayoutTemplate, X,
 } from 'lucide-react';
 
 interface Props {
@@ -343,7 +343,7 @@ function ColorField({ label, value, onChange, onCommit }: {
   label: string; value: string; onChange: (v: string) => void; onCommit?: () => void;
 }) {
   const parseColor = (v: string): { hex: string; opacity: number } => {
-    if (!v) return { hex: '#000000', opacity: 100 };
+    if (!v) return { hex: '', opacity: 100 };
     const rgba = v.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/);
     if (rgba) {
       const r = parseInt(rgba[1]), g = parseInt(rgba[2]), b = parseInt(rgba[3]);
@@ -351,7 +351,7 @@ function ColorField({ label, value, onChange, onCommit }: {
       return { hex: '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join(''), opacity: a };
     }
     if (v.startsWith('#')) return { hex: v.length === 4 ? '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3] : v, opacity: 100 };
-    return { hex: '#000000', opacity: 100 };
+    return { hex: '', opacity: 100 };
   };
   const initial = parseColor(value);
   const [hex, setHex] = useState(initial.hex);
@@ -368,10 +368,23 @@ function ColorField({ label, value, onChange, onCommit }: {
   return (
     <div className="flex items-center gap-1.5">
       <label className="text-[11px] text-[#718096] w-16 shrink-0 select-none">{label}</label>
-      <input type="color" value={hex.startsWith('#') && hex.length >= 7 ? hex.slice(0, 7) : '#000000'}
-        onChange={e => { setHex(e.target.value); onChange(buildColor(e.target.value, opacity)); }}
-        onBlur={onCommit}
-        className="w-5 h-5 rounded border border-[#dce1e8] cursor-pointer shrink-0 p-0" />
+      {hex ? (
+        <input type="color" value={hex.startsWith('#') && hex.length >= 7 ? hex.slice(0, 7) : '#ffffff'}
+          onChange={e => { setHex(e.target.value); onChange(buildColor(e.target.value, opacity)); }}
+          onBlur={onCommit}
+          className="w-5 h-5 rounded border border-[#dce1e8] cursor-pointer shrink-0 p-0" />
+      ) : (
+        <div className="relative w-5 h-5 shrink-0">
+          <input type="color" value="#ffffff"
+            onChange={e => { setHex(e.target.value); onChange(buildColor(e.target.value, opacity)); }}
+            onBlur={onCommit}
+            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer p-0 border-0"
+          />
+          <div className="w-5 h-5 rounded border border-dashed border-[#a0aec0] flex items-center justify-center pointer-events-none">
+            <Plus size={8} className="text-[#a0aec0]" />
+          </div>
+        </div>
+      )}
       {/* Eyedropper — uses browser EyeDropper API (Chrome/Edge only) */}
       {'EyeDropper' in window && (
         <button
@@ -497,54 +510,68 @@ function BrandSwatches({ onSelect }: { onSelect: (c: string) => void }) {
   );
 }
 
+// ─── Background color helpers ─────────────────────────────────
+function rgbToHex(rgb: string | null | undefined): string | null {
+  if (!rgb || rgb === 'transparent') return null;
+  if (rgb.startsWith('#')) return rgb;
+  const match = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+  if (!match) return null;
+  const alpha = match[4] !== undefined ? parseFloat(match[4]) : 1;
+  if (alpha === 0) return null;
+  const r = parseInt(match[1]).toString(16).padStart(2, '0');
+  const g = parseInt(match[2]).toString(16).padStart(2, '0');
+  const b = parseInt(match[3]).toString(16).padStart(2, '0');
+  return '#' + r + g + b;
+}
+
 // ─── Element Border Controls (reusable) ───────────────────────
 function ElementBorderControls({ info, onUpdate, onCommit }: {
   info: ElementInfo; onUpdate: (c: Partial<Record<string, string>>) => void; onCommit: (c: Partial<Record<string, string>>) => void;
 }) {
   const px = (s: string) => parseInt(s) || 0;
-  const [gradientMode, setGradientMode] = useState(!!info.borderImageSource);
+  const borderEnabled = px(info.borderWidth) > 0;
+  const [open, setOpen] = useState(true);
+  const enable = () => onCommit({ borderWidth: '1px', borderStyle: info.borderStyle || 'solid', borderColor: info.borderColor || '#e2e8f0', borderImageSource: '' });
+  const disable = () => onCommit({ borderWidth: '0px', borderColor: '', borderStyle: '', borderImageSource: '' });
+
+  // Auto-open when border is enabled via the toggle
+  useEffect(() => { if (borderEnabled) setOpen(true); }, [borderEnabled]);
 
   return (
-    <Collapse title="Border / Stroke" icon={<Square size={13} />} defaultOpen={px(info.borderWidth) > 0} applyPropKeys={['borderWidth', 'borderColor', 'borderStyle', 'borderRadius', 'borderImageSource']}>
-      <NumField label="Width" value={px(info.borderWidth)}
-        onChange={v => onUpdate({ borderWidth: `${v}px` })}
-        onCommit={() => onCommit({})} min={0} />
-      <div className="flex items-center gap-2">
-        <label className="text-[11px] text-[#718096] w-20 shrink-0 select-none">Mode</label>
-        <div className="flex bg-[#f0f2f5] rounded overflow-hidden">
-          <button onClick={() => { setGradientMode(false); onCommit({ borderImageSource: '' }); }}
-            className={`px-2.5 py-0.5 text-[11px] transition-colors ${!gradientMode ? 'bg-[#004BE2] text-white' : 'text-[#718096]'}`}
-            style={{ fontWeight: 600 }}>Solid</button>
-          <button onClick={() => setGradientMode(true)}
-            className={`px-2.5 py-0.5 text-[11px] transition-colors ${gradientMode ? 'bg-[#004BE2] text-white' : 'text-[#718096]'}`}
-            style={{ fontWeight: 600 }}>Gradient</button>
+    <div className="border-b border-[#edf0f4]">
+      <div className="w-full flex items-center gap-1.5 px-3 py-2.5 text-[12px] text-[#4a5568] hover:bg-[#f8f9fb] transition-colors" style={{ fontWeight: 600 }}>
+        <button type="button" onClick={() => setOpen(v => !v)} className="flex items-center gap-1.5 flex-1 min-w-0 text-left text-[12px]" style={{ fontWeight: 600 }}>
+          <span className="text-[#718096]"><Square size={13} /></span>Border
+        </button>
+        {/* Inline CSS toggle — thumb always stays inside the pill */}
+        <div
+          onClick={e => { e.stopPropagation(); borderEnabled ? disable() : enable(); }}
+          title={borderEnabled ? 'Disable border' : 'Enable border'}
+          style={{ width: 36, height: 20, borderRadius: 999, backgroundColor: borderEnabled ? '#2563EB' : '#D1D5DB', position: 'relative', cursor: 'pointer', transition: 'background-color 0.2s ease', flexShrink: 0 }}
+        >
+          <div style={{ width: 16, height: 16, borderRadius: '50%', backgroundColor: '#ffffff', position: 'absolute', top: 2, left: borderEnabled ? 18 : 2, transition: 'left 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
         </div>
+        <button type="button" onClick={() => setOpen(v => !v)} className="text-[#a0aec0] flex items-center">
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
       </div>
-      {gradientMode ? (
-        <GradientEditor
-          value={info.borderImageSource || 'linear-gradient(90deg, #004BE2, #E42527)'}
-          onChange={v => onCommit({ borderStyle: 'solid', borderColor: 'transparent', borderImageSource: v })} />
-      ) : (
-        <>
+      {open && (
+        <div className={`px-3 pb-3 space-y-2.5 transition-opacity ${!borderEnabled ? 'opacity-40 pointer-events-none select-none' : ''}`}>
+          <NumField label="Thickness" value={px(info.borderWidth)}
+            onChange={v => onUpdate({ borderWidth: `${v}px` })}
+            onCommit={() => onCommit({})} min={0} />
           <ColorField label="Color" value={info.borderColor || '#e2e8f0'}
             onChange={v => onUpdate({ borderColor: v })}
             onCommit={() => onCommit({})} />
           <SelectField label="Style" value={info.borderStyle || 'solid'}
             options={[{ label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' }]}
             onChange={v => onCommit({ borderStyle: v })} />
-        </>
+          <NumField label="Roundness" value={px(info.borderRadius)}
+            onChange={v => onUpdate({ borderRadius: `${v}px` })}
+            onCommit={() => onCommit({})} min={0} />
+        </div>
       )}
-      <NumField label="Radius" value={px(info.borderRadius)}
-        onChange={v => onUpdate({ borderRadius: `${v}px` })}
-        onCommit={() => onCommit({})} min={0} />
-      {(px(info.borderWidth) > 0 || info.borderColor) && (
-        <button
-          onClick={() => onCommit({ borderWidth: '0px', borderColor: '', borderStyle: '', borderRadius: info.borderRadius, borderImageSource: '' })}
-          className="text-[11px] text-red-500 hover:text-red-700 mt-1" style={{ fontWeight: 500 }}>
-          Remove Stroke
-        </button>
-      )}
-    </Collapse>
+    </div>
   );
 }
 
@@ -687,6 +714,42 @@ function SectionShadow({ shadow, onChangeLive, onCommit }: {
   );
 }
 
+// ─── Gradient presets for container background ─────────────────────────────────
+const GRADIENT_PRESETS = [
+  { name: 'Ocean',    from: '#1E3A8A', to: '#3B82F6' },
+  { name: 'Sunset',   from: '#DC2626', to: '#F97316' },
+  { name: 'Forest',   from: '#064E3B', to: '#10B981' },
+  { name: 'Lavender', from: '#5B21B6', to: '#8B5CF6' },
+  { name: 'Slate',    from: '#1E293B', to: '#475569' },
+  { name: 'Rose',     from: '#BE185D', to: '#F43F5E' },
+  { name: 'Sky',      from: '#0369A1', to: '#38BDF8' },
+  { name: 'Charcoal', from: '#111827', to: '#374151' },
+  { name: 'Gold',     from: '#92400E', to: '#F59E0B' },
+  { name: 'Midnight', from: '#1E1B4B', to: '#3730A3' },
+  { name: 'Coral',    from: '#9F1239', to: '#FB7185' },
+  { name: 'Teal',     from: '#134E4A', to: '#14B8A6' },
+];
+const GRADIENT_PRESETS_PASTEL = [
+  { name: 'Blush',         from: '#FFD6E0', to: '#FFAFCC' },
+  { name: 'Mint',          from: '#C7F9CC', to: '#A3E4D7' },
+  { name: 'Sky Mist',      from: '#BDE0FE', to: '#A2D2FF' },
+  { name: 'Peach',         from: '#FFCBA4', to: '#FFB347' },
+  { name: 'Lavender Mist', from: '#E2D9F3', to: '#C5B3E6' },
+  { name: 'Lemon',         from: '#FFF3B0', to: '#FFE566' },
+  { name: 'Rose Quartz',   from: '#F8D7DA', to: '#F1A7B5' },
+  { name: 'Arctic',        from: '#D0F0FD', to: '#B3E5FC' },
+  { name: 'Sage',          from: '#D4EDDA', to: '#B7DEC5' },
+  { name: 'Vanilla',       from: '#FFF8DC', to: '#FAEBD7' },
+  { name: 'Lilac',         from: '#E8D5F5', to: '#D7B8F3' },
+  { name: 'Powder',        from: '#E3F2FD', to: '#BBDEFB' },
+];
+const GRADIENT_DIRECTIONS = [
+  { label: '\u2193', value: 'to bottom',       title: 'Top to Bottom'       },
+  { label: '\u2192', value: 'to right',        title: 'Left to Right'       },
+  { label: '\u2198', value: 'to bottom right', title: 'Diagonal Down-Right' },
+  { label: '\u2197', value: 'to top right',    title: 'Diagonal Up-Right'   },
+];
+
 // ─── Main Panel ───────────────────────────────────────────────
 
 export function PropertiesPanel({
@@ -719,6 +782,12 @@ export function PropertiesPanel({
     [library]
   );
   const [aspectLocked, setAspectLocked] = useState(true);
+  // Link Color mode — persists while an element is selected, resets on element change
+  const [linkColorMode, setLinkColorMode] = useState<'light' | 'dark'>('light');
+  useEffect(() => {
+    if (elementInfo?.color === '#96BCFF') setLinkColorMode('dark');
+    else setLinkColorMode('light');
+  }, [selectedElementId]);
   // Inline dropdown visibility for the Duplicate button — shown next to the
   // button itself in the Actions section. Closed when the user picks a
   // direction or clicks outside.
@@ -865,6 +934,55 @@ export function PropertiesPanel({
   const saveScroll = () => { if (scrollRef.current) scrollPosRef.current[activeTab] = scrollRef.current.scrollTop; };
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollPosRef.current[activeTab] || 0; }, [activeTab]);
 
+  // Local display-only state for DOM-detected bg color — never written to the data model
+  const [detectedBgColor, setDetectedBgColor] = useState('');
+
+  // Read-only background color detection: sets local display state only, never mutates element data
+  useEffect(() => {
+    setDetectedBgColor('');
+    if (!elementInfo || elementInfo.type !== 'container' || elementInfo.backgroundColor || elementInfo.backgroundImage) return;
+    const timerId = setTimeout(() => {
+      const domEl = selectedElementId
+        ? (document.querySelector(`[data-element-id="${selectedElementId}"]`) as HTMLElement | null)
+        : null;
+
+      if (domEl) {
+        // Priority 2: check inline style directly
+        const inlineHex = rgbToHex(domEl.style.backgroundColor);
+        if (inlineHex) { setDetectedBgColor(inlineHex); return; }
+
+        // Priority 3: walk up the DOM tree for first non-transparent computed color
+        let el: HTMLElement | null = domEl;
+        while (el && el !== document.body) {
+          const computedBg = window.getComputedStyle(el).backgroundColor;
+          const hex = rgbToHex(computedBg);
+          if (hex) { setDetectedBgColor(hex); return; }
+          el = el.parentElement;
+        }
+      }
+    }, 0);
+    return () => clearTimeout(timerId);
+  }, [selectedElementId]);
+
+  // Button background color detection — display-only, never mutates data model
+  const [detectedBtnBgColor, setDetectedBtnBgColor] = useState('');
+  useEffect(() => {
+    setDetectedBtnBgColor('');
+    if (!elementInfo || elementInfo.type !== 'button' || elementInfo.backgroundColor) return;
+    const timerId = setTimeout(() => {
+      const domEl = selectedElementId
+        ? (document.querySelector(`[data-element-id="${selectedElementId}"]`) as HTMLElement | null)
+        : null;
+      if (domEl) {
+        const inlineHex = rgbToHex(domEl.style.backgroundColor);
+        if (inlineHex) { setDetectedBtnBgColor(inlineHex); return; }
+        const computedHex = rgbToHex(window.getComputedStyle(domEl).backgroundColor);
+        if (computedHex) setDetectedBtnBgColor(computedHex);
+      }
+    }, 0);
+    return () => clearTimeout(timerId);
+  }, [selectedElementId]);
+
   const px = (s: string) => parseInt(s) || 0;
 
   const handleFileUpload = (callback: (dataUrl: string, naturalWidth?: number, naturalHeight?: number) => void) => {
@@ -873,7 +991,10 @@ export function PropertiesPanel({
     const inp = document.createElement('input');
     inp.type = 'file';
     inp.accept = '.jpg,.jpeg,.png,.gif';
+    inp.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none;';
+    document.body.appendChild(inp);
     inp.onchange = () => {
+      document.body.removeChild(inp);
       const file = inp.files?.[0];
       if (!file) return;
       if (!ALLOWED_TYPES.includes(file.type)) {
@@ -907,47 +1028,93 @@ export function PropertiesPanel({
 
   return (
     <div className="flex flex-col h-full bg-white overflow-x-hidden">
-      {/* Tab bar */}
-      <div className="flex border-b border-[#dce1e8] shrink-0">
-        {(['properties', 'theme'] as const).map(t => (
-          <button key={t} onClick={() => { saveScroll(); onSetTab(t); }}
-            className={`flex-1 py-2.5 text-[12px] transition-colors border-b-2 ${
-              activeTab === t ? 'text-[#004BE2] border-[#004BE2]' : 'text-[#718096] border-transparent hover:text-[#2d3748]'
-            }`} style={{ fontWeight: 600 }}>
-            {t === 'properties' ? 'Properties' : 'Theme'}
-          </button>
-        ))}
+      <div className="px-4 py-2.5 border-b border-[#dce1e8] shrink-0">
+        <span className="text-[12px] text-[#111827]" style={{ fontWeight: 600 }}>Properties</span>
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden" ref={scrollRef}>
         {/* ═══ PROPERTIES TAB ═══ */}
-        {activeTab === 'properties' && elementInfo && section && (
+        {elementInfo && section && (
           <ApplyCtx.Provider value={elementApplyCtx}>
           <>
-            {/* 1. Element Info */}
-            <Collapse title="Element" icon={<Settings size={13} />}>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] px-1.5 py-0.5 bg-[#f0f4f8] rounded text-[#4a5568]" style={{ fontWeight: 600 }}>{elementInfo.tagName}</span>
-                <span className="text-[11px] text-[#a0aec0]">{elementInfo.type}{elementInfo.isTextContainer ? ' (text)' : ''}</span>
-              </div>
-              {elementInfo.type !== 'image' && elementInfo.type !== 'icon' && (elementInfo.type !== 'container' || elementInfo.isTextContainer) && elementInfo.text && (
-                <TextField label="Text" value={elementInfo.text}
-                  onChange={v => wrappedUpdateElement({ text: v })}
-                  onCommit={() => wrappedUpdateElementCommit({})} />
-              )}
-            </Collapse>
-
-            {/* 1.5 Link URL — available for every element type */}
-            <Collapse title="Link URL" icon={<LinkIcon size={13} />} defaultOpen={!!elementInfo.href} applyPropKeys={['href']}>
+            {/* 1.5 Add Link — available for every element type */}
+            <Collapse title="Add Link" icon={<LinkIcon size={13} />} defaultOpen={!!elementInfo.href} applyPropKeys={['href']}>
               <FieldWithApply propKeys={['href']}>
-              <TextField label="URL" value={elementInfo.href}
-                placeholder="https://example.com"
-                onChange={v => wrappedUpdateElementCommit({ href: v, target: v ? '_blank' : '' })} />
+              <input
+                type="url"
+                value={elementInfo.href}
+                placeholder="Paste URL here"
+                className="w-full px-2 py-1.5 bg-[#f7f8fa] border border-[#dce1e8] rounded text-[11px] text-[#2d3748] outline-none focus:border-[#004BE2] focus:ring-1 focus:ring-[#004BE2]/20"
+                onChange={e => {
+                  const v = e.target.value;
+                  const changes: Partial<Record<string, string>> = { href: v, target: v ? '_blank' : '' };
+                  if (v && (elementInfo.type === 'text' || elementInfo.type === 'link' || elementInfo.isTextContainer)) {
+                    if (!elementInfo.href) {
+                      changes.originalTextColor = elementInfo.color || '';
+                    }
+                    changes.color = linkColorMode === 'dark' ? '#96BCFF' : '#286CE5';
+                  }
+                  wrappedUpdateElementCommit(changes);
+                }}
+              />
               </FieldWithApply>
               {elementInfo.href && (
-                <p className="text-[11px] text-[#718096] ml-[88px] flex items-center gap-1">
-                  <LinkIcon size={10} /> Opens in new tab
-                </p>
+                <>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <input
+                      type="checkbox"
+                      id="add-link-new-tab"
+                      checked={elementInfo.target === '_blank'}
+                      onChange={e => wrappedUpdateElementCommit({ target: e.target.checked ? '_blank' : '' })}
+                      className="w-3 h-3 accent-[#004BE2] cursor-pointer shrink-0"
+                    />
+                    <label htmlFor="add-link-new-tab" className="text-[11px] text-[#4a5568] select-none cursor-pointer">
+                      Opens in new tab
+                    </label>
+                  </div>
+                  {/* Link Color manual selector */}
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="text-[12px] text-[#374151] shrink-0">Link Color</span>
+                    <div className="flex gap-1.5">
+                      {(['light', 'dark'] as const).map(mode => (
+                        <button
+                          key={mode}
+                          onClick={() => {
+                            setLinkColorMode(mode);
+                            if (elementInfo.href) {
+                              wrappedUpdateElementCommit({ color: mode === 'dark' ? '#96BCFF' : '#286CE5' });
+                            }
+                          }}
+                          style={{
+                            borderRadius: 999, padding: '3px 10px', fontSize: 12, cursor: 'pointer', border: '1px solid',
+                            backgroundColor: linkColorMode === mode ? '#EFF6FF' : '#F3F4F6',
+                            borderColor: linkColorMode === mode ? '#2563EB' : '#E5E7EB',
+                            color: linkColorMode === mode ? '#2563EB' : '#6B7280',
+                          }}
+                        >
+                          {mode === 'light' ? 'Light' : 'Dark'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      // Restore original text color stored when the link was first applied
+                      const raw = getSelectedElement();
+                      const storedOriginal = (raw?.styles as any)?.originalTextColor;
+                      const restoreChanges: Partial<Record<string, string>> = { href: '', target: '' };
+                      if (storedOriginal !== undefined) {
+                        restoreChanges.color = storedOriginal;
+                        restoreChanges.originalTextColor = '';
+                      }
+                      wrappedUpdateElementCommit(restoreChanges);
+                    }}
+                    className="mt-1.5 text-[11px] text-[#E53935] hover:text-[#c62828] transition-colors"
+                    style={{ fontWeight: 500 }}
+                  >
+                    Remove Link
+                  </button>
+                </>
               )}
             </Collapse>
 
@@ -1001,31 +1168,6 @@ export function PropertiesPanel({
                     }
                   }}
                   onCommit={() => wrappedUpdateElementCommit({})} />
-                <BrandSwatches onSelect={c => {
-                    const sel = window.getSelection();
-                    const activeEl = document.activeElement as HTMLElement | null;
-                    if (
-                      sel && !sel.isCollapsed && sel.rangeCount > 0 &&
-                      activeEl && activeEl.isContentEditable
-                    ) {
-                      const range = sel.getRangeAt(0).cloneRange();
-                      const fragment = range.extractContents();
-                      const span = document.createElement('span');
-                      span.style.color = c;
-                      span.appendChild(fragment);
-                      range.insertNode(span);
-                      const sectionEl = activeEl.closest('[data-section-id]') as HTMLElement | null;
-                      const elId = activeEl.getAttribute('data-element-id') ||
-                        (sel.anchorNode?.parentElement?.closest('[data-element-id]') as HTMLElement | null)?.getAttribute('data-element-id') ||
-                        selectedElementId;
-                      if (sectionEl && elId && section) {
-                        const secId = sectionEl.getAttribute('data-section-id') || section.id;
-                        onPatchElement(secId, elId, { html: activeEl.innerHTML });
-                      }
-                    } else {
-                      wrappedUpdateElementCommit({ color: c });
-                    }
-                  }} />
                 </FieldWithApply>
                 <div className="flex gap-1.5 ml-[88px]">
                   <button onClick={() => wrappedUpdateElementCommit({ fontStyle: elementInfo.fontStyle === 'italic' ? 'normal' : 'italic' })}
@@ -1044,72 +1186,32 @@ export function PropertiesPanel({
                   onChange={v => wrappedUpdateElementCommit({ textAlign: v })} />
                 </FieldWithApply>
                 <FieldWithApply propKeys={['lineHeight']}>
-                <NumField label="Line H" value={parseFloat(elementInfo.lineHeight) || 1.5}
+                <NumField label="Line Height" value={parseFloat(elementInfo.lineHeight) || 1.5}
                   onChange={v => wrappedUpdateElement({ lineHeight: String(v) })} onCommit={() => wrappedUpdateElementCommit({})} suffix="" min={0.5} max={4} step={0.1} />
-                </FieldWithApply>
-                <FieldWithApply propKeys={['letterSpacing']}>
-                <NumField label="Spacing" value={parseFloat(elementInfo.letterSpacing) || 0}
-                  onChange={v => wrappedUpdateElement({ letterSpacing: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={-5} max={20} step={0.5} />
-                </FieldWithApply>
-                <FieldWithApply propKeys={['textTransform']}>
-                <SelectField label="Transform" value={elementInfo.textTransform || 'none'}
-                  options={[{ label: 'None', value: 'none' }, { label: 'Uppercase', value: 'uppercase' }, { label: 'Lowercase', value: 'lowercase' }, { label: 'Capitalize', value: 'capitalize' }]}
-                  onChange={v => wrappedUpdateElementCommit({ textTransform: v })} />
                 </FieldWithApply>
               </Collapse>
             )}
 
-            {/* 3. Button Controls */}
+            {/* 3. Button Controls — Background Color and Rounded Corners only */}
             {elementInfo.type === 'button' && (
-              <Collapse title="Button" icon={<Paintbrush size={13} />} applyPropKeys={['backgroundColor', 'background', 'width', 'height', 'borderRadius', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'textAlign']}>
-                <FieldWithApply propKeys={['backgroundColor']}>
-                <ColorField label="Fill Color" value={elementInfo.backgroundColor}
-                  onChange={v => wrappedUpdateElement({ backgroundColor: v })} onCommit={() => wrappedUpdateElementCommit({})} />
-                <BrandSwatches onSelect={c => wrappedUpdateElementCommit({ backgroundColor: c })} />
-                </FieldWithApply>
-                {elementInfo.backgroundColor && (
-                  <button onClick={() => wrappedUpdateElementCommit({ backgroundColor: '', background: '' })}
-                    className="text-[11px] text-red-500 hover:text-red-700" style={{ fontWeight: 500 }}>Clear fill</button>
-                )}
-                <p className="text-[11px] text-[#718096] mt-1" style={{ fontWeight: 600 }}>Fill Gradient</p>
-                <FieldWithApply propKeys={['background']}>
-                <GradientEditor value={elementInfo.background || ''}
-                  onChange={v => wrappedUpdateElementCommit({ background: v, backgroundColor: '' })} />
-                </FieldWithApply>
-                {elementInfo.background && (
-                  <button onClick={() => wrappedUpdateElementCommit({ background: '' })}
-                    className="text-[11px] text-red-500 hover:text-red-700" style={{ fontWeight: 500 }}>Clear gradient</button>
-                )}
-                <FieldWithApply propKeys={['width']}>
-                <NumField label="Width" value={px(elementInfo.width)}
-                  onChange={v => wrappedUpdateElement({ width: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={0} />
-                </FieldWithApply>
-                <FieldWithApply propKeys={['height']}>
-                <NumField label="Height" value={px(elementInfo.height)}
-                  onChange={v => wrappedUpdateElement({ height: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={0} />
-                </FieldWithApply>
-                <FieldWithApply propKeys={['borderRadius']}>
-                <NumField label="Roundness" value={px(elementInfo.borderRadius)}
-                  onChange={v => wrappedUpdateElement({ borderRadius: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={0} />
-                </FieldWithApply>
-                <FieldWithApply propKeys={['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']}>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                  <CompactNumField label="P-Top" value={px(elementInfo.paddingTop)}
-                    onChange={v => wrappedUpdateElement({ paddingTop: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                  <CompactNumField label="P-Right" value={px(elementInfo.paddingRight)}
-                    onChange={v => wrappedUpdateElement({ paddingRight: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                  <CompactNumField label="P-Bottom" value={px(elementInfo.paddingBottom)}
-                    onChange={v => wrappedUpdateElement({ paddingBottom: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                  <CompactNumField label="P-Left" value={px(elementInfo.paddingLeft)}
-                    onChange={v => wrappedUpdateElement({ paddingLeft: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                </div>
-                </FieldWithApply>
-                <FieldWithApply propKeys={['textAlign']}>
-                <SelectField label="Align" value={elementInfo.textAlign || 'center'}
-                  options={[{ label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' }]}
-                  onChange={v => wrappedUpdateElementCommit({ textAlign: v })} />
-                </FieldWithApply>
-              </Collapse>
+              <>
+                <Collapse title="Background Color" icon={<Palette size={13} />} applyPropKeys={['backgroundColor']}>
+                  <FieldWithApply propKeys={['backgroundColor']}>
+                  <ColorField label="Color" value={elementInfo.backgroundColor || detectedBtnBgColor}
+                    onChange={v => wrappedUpdateElement({ backgroundColor: v })} onCommit={() => wrappedUpdateElementCommit({})} />
+                  </FieldWithApply>
+                  {elementInfo.backgroundColor && (
+                    <button onClick={() => wrappedUpdateElementCommit({ backgroundColor: '', background: '' })}
+                      className="text-[11px] text-red-500 hover:text-red-700" style={{ fontWeight: 500 }}>Clear</button>
+                  )}
+                </Collapse>
+                <Collapse title="Rounded Corners" icon={<Square size={13} />} applyPropKeys={['borderRadius']}>
+                  <FieldWithApply propKeys={['borderRadius']}>
+                  <NumField label="Radius" value={px(elementInfo.borderRadius)}
+                    onChange={v => wrappedUpdateElement({ borderRadius: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={0} />
+                  </FieldWithApply>
+                </Collapse>
+              </>
             )}
 
             {/* Icon element — emoji/symbol that can be replaced with an uploaded image */}
@@ -1282,10 +1384,8 @@ export function PropertiesPanel({
                     ]}
                     onChange={v => wrappedUpdateElementCommit({ objectFit: v })} />
                   <p className="text-[11px] text-[#a0aec0]">Double-click image on canvas to crop &amp; reposition</p>
-                  <NumField label="Radius" value={px(elementInfo.borderRadius)}
+                  <NumField label="Roundness" value={px(elementInfo.borderRadius)}
                     onChange={v => wrappedUpdateElement({ borderRadius: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={0} />
-                  <TextField label="Alt" value={elementInfo.alt}
-                    onChange={v => wrappedUpdateElement({ alt: v })} onCommit={() => wrappedUpdateElementCommit({})} placeholder="Describe icon" />
                 </Collapse>
               );
 
@@ -1351,130 +1451,247 @@ export function PropertiesPanel({
                   ]}
                   onChange={v => wrappedUpdateElementCommit({ objectFit: v })} />
                 <p className="text-[11px] text-[#a0aec0]">Double-click image on canvas to crop &amp; reposition</p>
-                <NumField label="Radius" value={px(elementInfo.borderRadius)}
+                <NumField label="Roundness" value={px(elementInfo.borderRadius)}
                   onChange={v => wrappedUpdateElement({ borderRadius: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={0} />
-                <TextField label="Alt" value={elementInfo.alt}
-                  onChange={v => wrappedUpdateElement({ alt: v })} onCommit={() => wrappedUpdateElementCommit({})} placeholder="Describe the image" />
-                {!elementInfo.alt && (
-                  <div className="flex items-center gap-1 text-[11px] text-[#d97706] ml-[88px]">
-                    <AlertTriangle size={10} /> Missing alt text
-                  </div>
-                )}
               </Collapse>
               ); // end regular image
             })()} {/* end image/icon IIFE */}
 
             {/* 5. Container Controls */}
-            {elementInfo.type === 'container' && (
-              <Collapse title="Container" icon={<Square size={13} />} applyPropKeys={['backgroundColor', 'background', 'backgroundImage', 'backgroundSize', 'borderRadius']}>
-                <ColorField label="BG Color" value={elementInfo.backgroundColor}
-                  onChange={v => wrappedUpdateElement({ backgroundColor: v })} onCommit={() => wrappedUpdateElementCommit({})} />
-                <BrandSwatches onSelect={c => wrappedUpdateElementCommit({ backgroundColor: c })} />
-                {elementInfo.backgroundColor && (
-                  <button onClick={() => wrappedUpdateElementCommit({ backgroundColor: '', background: '' })}
-                    className="text-[11px] text-red-500 hover:text-red-700" style={{ fontWeight: 500 }}>Clear background</button>
-                )}
-                <p className="text-[11px] text-[#718096] mt-1" style={{ fontWeight: 600 }}>BG Gradient</p>
-                <GradientEditor value={elementInfo.background || ''}
-                  onChange={v => wrappedUpdateElementCommit({ background: v, backgroundColor: '' })} />
-                {elementInfo.background && (
-                  <button onClick={() => wrappedUpdateElementCommit({ background: '' })}
-                    className="text-[11px] text-red-500 hover:text-red-700" style={{ fontWeight: 500 }}>Clear gradient</button>
-                )}
-                {/* BG Image — mirrors the Outer Background pattern from the
-                    Section tab. Stores into elementInfo.backgroundImage which
-                    serializes to the element's inline style as
-                    background-image:url(...) plus background-size for fit.
-                    The stored value is a CSS url('...') expression; we
-                    strip it for the preview img tag and re-wrap on save. */}
-                <p className="text-[11px] text-[#718096] mt-1" style={{ fontWeight: 600 }}>BG Image</p>
-                {(() => {
-                  const bgImg = elementInfo.backgroundImage || '';
-                  // Parse url('...'), url("..."), or url(...) variants
-                  const m = bgImg.match(/url\((['"]?)([^'")]+)\1\)/);
-                  const previewUrl = m ? m[2] : bgImg && !bgImg.includes('url(') ? bgImg : '';
-                  return previewUrl ? (
-                    <div className="space-y-1.5">
-                      <div className="w-full h-16 rounded border border-[#dce1e8] overflow-hidden">
-                        <img src={previewUrl} className="w-full h-full object-cover" alt="BG" />
-                      </div>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => handleFileUpload(url => wrappedUpdateElementCommit({ backgroundImage: `url('${url}')` }))}
-                          className="flex items-center gap-1 px-2.5 py-1 bg-[#f0f2f5] text-[#4a5568] rounded text-[11px] hover:bg-[#e2e7ee]" style={{ fontWeight: 500 }}>
-                          <ImagePlus size={10} /> Replace
-                        </button>
-                        <button onClick={() => wrappedUpdateElementCommit({ backgroundImage: '' })}
-                          className="flex items-center gap-1 px-2.5 py-1 bg-red-50 text-red-500 rounded text-[11px] hover:bg-red-100" style={{ fontWeight: 500 }}>
-                          <Trash2 size={10} /> Remove
-                        </button>
-                      </div>
-                      <SelectField label="Fit" value={elementInfo.backgroundSize || 'cover'}
-                        options={IMAGE_FIT_MODES.map(m => ({ label: m, value: m }))}
-                        onChange={v => wrappedUpdateElementCommit({ backgroundSize: v })} />
-                    </div>
-                  ) : (
-                    <button onClick={() => handleFileUpload(url => wrappedUpdateElementCommit({ backgroundImage: `url('${url}')`, backgroundSize: 'cover' }))}
-                      className="w-full h-12 border-2 border-dashed border-[#dce1e8] rounded-md flex items-center justify-center text-[#a0aec0] hover:border-[#004BE2] hover:text-[#004BE2] transition-colors cursor-pointer">
-                      <Plus size={14} />
-                    </button>
-                  );
-                })()}
-                <NumField label="Roundness" value={px(elementInfo.borderRadius)}
-                  onChange={v => wrappedUpdateElement({ borderRadius: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={0} />
-              </Collapse>
-            )}
+            {elementInfo.type === 'container' && (() => {
+              // Derive mode: gradient detection, then image, then color
+              const bgMode: 'color' | 'gradient' | 'image' =
+                elementInfo.backgroundImage ? 'image' :
+                (elementInfo.background || '').includes('gradient') ? 'gradient' :
+                'color';
 
-            {/* 6. Appearance (opacity) */}
+              const parsedGrad = bgMode === 'gradient' ? (() => {
+                const m = (elementInfo.background || '').match(/linear-gradient\(([^,]+),\s*(#[\da-fA-F]{3,6}),\s*(#[\da-fA-F]{3,6})\)/);
+                return m ? { direction: m[1].trim(), from: m[2].trim(), to: m[3].trim() } : null;
+              })() : null;
+              const activeBoldIdx = parsedGrad
+                ? GRADIENT_PRESETS.findIndex(p => p.from.toLowerCase() === parsedGrad.from.toLowerCase() && p.to.toLowerCase() === parsedGrad.to.toLowerCase())
+                : -1;
+              const activePastelIdx = parsedGrad
+                ? GRADIENT_PRESETS_PASTEL.findIndex(p => p.from.toLowerCase() === parsedGrad.from.toLowerCase() && p.to.toLowerCase() === parsedGrad.to.toLowerCase())
+                : -1;
+              const activeDirection = parsedGrad?.direction || 'to bottom';
+              const applyGradient = (from: string, to: string, direction: string) =>
+                wrappedUpdateElementCommit({ backgroundColor: from, background: `linear-gradient(${direction}, ${from}, ${to})`, backgroundImage: '' });
+
+              return (
+                <Collapse title="Background" icon={<Palette size={13} />} applyPropKeys={['backgroundColor', 'background', 'backgroundImage', 'backgroundSize', 'borderRadius']}>
+                  <div className="flex items-center bg-[#f0f2f5] rounded-md p-0.5 gap-0.5 mb-2">
+                    {[
+                      { id: 'color' as const, label: 'Color' },
+                      { id: 'gradient' as const, label: 'Gradient' },
+                      { id: 'image' as const, label: 'Image' },
+                    ].map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => {
+                          if (id === 'color' && bgMode !== 'color') {
+                            wrappedUpdateElementCommit({ backgroundImage: '', background: '' });
+                          } else if (id === 'gradient' && bgMode !== 'gradient') {
+                            // sentinel value makes bgMode detect 'gradient'; preset idx stays -1 (none selected)
+                            wrappedUpdateElementCommit({ backgroundImage: '', backgroundColor: '', background: 'gradient-mode' });
+                          } else if (id === 'image' && bgMode !== 'image') {
+                            handleFileUpload(url => wrappedUpdateElementCommit({
+                              backgroundImage: `url('${url}')`,
+                              backgroundColor: '', background: '', backgroundSize: 'cover',
+                            }));
+                          }
+                        }}
+                        className={`flex-1 py-1 rounded text-[11px] transition-colors ${
+                          bgMode === id
+                            ? 'bg-white text-[#2d3748] shadow-sm'
+                            : 'text-[#718096] hover:text-[#4a5568]'
+                        }`}
+                        style={{ fontWeight: bgMode === id ? 600 : 400 }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {bgMode === 'color' && (
+                    <ColorField label="Color" value={elementInfo.backgroundColor || detectedBgColor}
+                      onChange={v => wrappedUpdateElement({ backgroundColor: v, background: '' })} onCommit={() => wrappedUpdateElementCommit({})} />
+                  )}
+
+                  {bgMode === 'gradient' && (
+                    <div className="space-y-3">
+                      {/* Bold group */}
+                      <p className="text-[11px] text-[#6B7280]" style={{ fontWeight: 500 }}>Bold</p>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {GRADIENT_PRESETS.map((preset, idx) => {
+                          const isActive = idx === activeBoldIdx;
+                          return (
+                            <button
+                              key={preset.name}
+                              onClick={() => applyGradient(preset.from, preset.to, activeDirection)}
+                              title={preset.name}
+                              style={{
+                                height: 32, borderRadius: 6,
+                                border: isActive ? '2.5px solid #2563EB' : '1px solid #E5E7EB',
+                                background: `linear-gradient(to bottom, ${preset.from}, ${preset.to})`,
+                                cursor: 'pointer', transition: 'transform 0.15s ease',
+                                position: 'relative', padding: 0, overflow: 'visible',
+                              }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.03)'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
+                            >
+                              {isActive && (
+                                <div style={{ position: 'absolute', top: -1, right: -1, width: 18, height: 18, backgroundColor: '#2563EB', borderRadius: '0 6px 0 6px', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L3.8 7.5L8.5 2.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {/* Divider between Bold and Pastel */}
+                      <div style={{ height: 1, backgroundColor: '#E5E7EB', margin: '10px 0' }} />
+                      {/* Pastel group */}
+                      <p className="text-[11px] text-[#6B7280]" style={{ fontWeight: 500 }}>Pastel</p>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {GRADIENT_PRESETS_PASTEL.map((preset, idx) => {
+                          const isActive = idx === activePastelIdx;
+                          return (
+                            <button
+                              key={preset.name}
+                              onClick={() => applyGradient(preset.from, preset.to, activeDirection)}
+                              title={preset.name}
+                              style={{
+                                height: 32, borderRadius: 6,
+                                border: isActive ? '2.5px solid #2563EB' : '1px solid #E5E7EB',
+                                background: `linear-gradient(to bottom, ${preset.from}, ${preset.to})`,
+                                cursor: 'pointer', transition: 'transform 0.15s ease',
+                                position: 'relative', padding: 0, overflow: 'visible',
+                              }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.03)'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
+                            >
+                              {isActive && (
+                                <div style={{ position: 'absolute', top: -1, right: -1, width: 18, height: 18, backgroundColor: '#2563EB', borderRadius: '0 6px 0 6px', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L3.8 7.5L8.5 2.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div>
+                        <p className="text-[12px] text-[#374151] mb-1.5">Direction</p>
+                        <div className="flex gap-1.5">
+                          {GRADIENT_DIRECTIONS.map(dir => {
+                            const isActiveDir = activeDirection === dir.value;
+                            return (
+                              <button
+                                key={dir.value}
+                                onClick={() => { if (parsedGrad) applyGradient(parsedGrad.from, parsedGrad.to, dir.value); }}
+                                title={dir.title}
+                                style={{
+                                  width: 28, height: 28, borderRadius: 4, fontSize: 13,
+                                  backgroundColor: isActiveDir ? '#EFF6FF' : '#F9FAFB',
+                                  border: `1px solid ${isActiveDir ? '#2563EB' : '#E5E7EB'}`,
+                                  cursor: parsedGrad ? 'pointer' : 'default',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                }}
+                              >
+                                {dir.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => wrappedUpdateElementCommit({ background: '', backgroundImage: '' })}
+                        className="text-[11px] text-[#EF4444] hover:text-[#DC2626]"
+                        style={{ fontWeight: 500 }}
+                      >
+                        Clear gradient
+                      </button>
+                    </div>
+                  )}
+
+                  {bgMode === 'image' && (() => {
+                    const bgImg = elementInfo.backgroundImage || '';
+                    const imgM = bgImg.match(/url\((['"]?)([^'")\s]+)\1\)/);
+                    const previewUrl = imgM ? imgM[2] : bgImg && !bgImg.includes('url(') ? bgImg : '';
+                    return previewUrl ? (
+                      <div className="space-y-1.5">
+                        <div className="w-full h-16 rounded border border-[#dce1e8] overflow-hidden">
+                          <img src={previewUrl} className="w-full h-full object-cover" alt="BG" />
+                        </div>
+                        <div className="flex gap-1.5">
+                          <button onClick={() => handleFileUpload(url => wrappedUpdateElementCommit({ backgroundImage: `url('${url}')` }))}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-[#f0f2f5] text-[#4a5568] rounded text-[11px] hover:bg-[#e2e7ee]" style={{ fontWeight: 500 }}>
+                            <ImagePlus size={10} /> Replace
+                          </button>
+                          <button onClick={() => wrappedUpdateElementCommit({ backgroundImage: '' })}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-red-50 text-red-500 rounded text-[11px] hover:bg-red-100" style={{ fontWeight: 500 }}>
+                            <Trash2 size={10} /> Remove
+                          </button>
+                        </div>
+                        <SelectField label="Fit" value={elementInfo.backgroundSize || 'cover'}
+                          options={IMAGE_FIT_MODES.map(m => ({ label: m, value: m }))}
+                          onChange={v => wrappedUpdateElementCommit({ backgroundSize: v })} />
+                      </div>
+                    ) : (
+                      <button onClick={() => handleFileUpload(url => wrappedUpdateElementCommit({ backgroundImage: `url('${url}')`, backgroundSize: 'cover' }))}
+                        className="w-full h-12 border-2 border-dashed border-[#dce1e8] rounded-md flex items-center justify-center text-[#a0aec0] hover:border-[#004BE2] hover:text-[#004BE2] transition-colors cursor-pointer">
+                        <Plus size={14} />
+                      </button>
+                    );
+                  })()}
+
+                  <div className="border-t border-[#edf0f4] mt-3 pt-2">
+                    <NumField label="Roundness" value={px(elementInfo.borderRadius)}
+                      onChange={v => wrappedUpdateElement({ borderRadius: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={0} />
+                  </div>
+                </Collapse>
+              );
+            })()}
+
+            {/* 6. Appearance (opacity) — hidden for button */}
+            {elementInfo.type !== 'button' && (
             <Collapse title="Appearance" icon={<Palette size={13} />} applyPropKeys={['opacity']}>
               <div className="flex items-center gap-2">
                 <label className="text-[11px] text-[#718096] w-20 shrink-0 select-none">Opacity</label>
                 <input type="range" min={0} max={100} step={1}
                   value={Math.round((parseFloat(elementInfo.opacity) || 1) * 100)}
                   onChange={e => wrappedUpdateElement({ opacity: String(parseInt(e.target.value) / 100) })}
-                  onMouseUp={() => wrappedUpdateElementCommit({})}
+                  onPointerUp={() => wrappedUpdateElementCommit({})}
                   className="flex-1 accent-[#004BE2] h-1.5 cursor-pointer min-w-0" />
-                <BufferedNumInput
+                {/* direct input so spinner arrows fire onChange and update canvas live */}
+                <input type="number" min={0} max={100} step={1}
                   value={Math.round((parseFloat(elementInfo.opacity) || 1) * 100)}
-                  onCommitValue={n => wrappedUpdateElementCommit({ opacity: String(Math.max(0, Math.min(100, n)) / 100) })}
+                  onChange={e => wrappedUpdateElement({ opacity: String(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) / 100) })}
+                  onBlur={() => wrappedUpdateElementCommit({})}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Tab') wrappedUpdateElementCommit({}); }}
                   className="w-12 shrink-0 px-1.5 py-0.5 bg-[#f7f8fa] border border-[#dce1e8] rounded text-[11px] text-[#2d3748] text-center outline-none focus:border-[#004BE2]" />
                 <span className="text-[11px] text-[#a0aec0] shrink-0">%</span>
               </div>
             </Collapse>
+            )}
 
-            {/* 7. Drop Shadow */}
-            <DropShadowSection
-              key={selectedElementId ?? undefined}
-              info={elementInfo}
-              isText={elementInfo.type === 'text'}
-              onUpdate={wrappedUpdateElement}
-              onCommit={wrappedUpdateElementCommit} />
-
-            {/* 8. Spacing */}
-            <Collapse title="Spacing" icon={<Sliders size={13} />} applyPropKeys={['marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']}>
+            {/* 8. Padding */}
+            <Collapse title="Padding" icon={<Sliders size={13} />} applyPropKeys={['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']}>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <CompactNumField label={<>Gap<br/>above</>} value={px(elementInfo.marginTop)}
-                  onChange={v => wrappedUpdateElement({ marginTop: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                <CompactNumField label="M-Right" value={px(elementInfo.marginRight)}
-                  onChange={v => wrappedUpdateElement({ marginRight: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                <CompactNumField label={<>Gap<br/>below</>} value={px(elementInfo.marginBottom)}
-                  onChange={v => wrappedUpdateElement({ marginBottom: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                <CompactNumField label="M-Left" value={px(elementInfo.marginLeft)}
-                  onChange={v => wrappedUpdateElement({ marginLeft: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-              </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <CompactNumField label="P-Top" value={px(elementInfo.paddingTop)}
+                <CompactNumField label="Top" value={px(elementInfo.paddingTop)}
                   onChange={v => wrappedUpdateElement({ paddingTop: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                <CompactNumField label="P-Right" value={px(elementInfo.paddingRight)}
+                <CompactNumField label="Right" value={px(elementInfo.paddingRight)}
                   onChange={v => wrappedUpdateElement({ paddingRight: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                <CompactNumField label="P-Bottom" value={px(elementInfo.paddingBottom)}
+                <CompactNumField label="Bottom" value={px(elementInfo.paddingBottom)}
                   onChange={v => wrappedUpdateElement({ paddingBottom: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
-                <CompactNumField label="P-Left" value={px(elementInfo.paddingLeft)}
+                <CompactNumField label="Left" value={px(elementInfo.paddingLeft)}
                   onChange={v => wrappedUpdateElement({ paddingLeft: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
               </div>
             </Collapse>
 
-            {/* 9. Link */}
-            {(elementInfo.tagName === 'A' || elementInfo.type === 'button') && (
+            {/* 9. Link — for anchor elements only; button uses section 1.5 Add Link */}
+            {elementInfo.tagName === 'A' && elementInfo.type !== 'button' && (
               <Collapse title="Link" icon={<LinkIcon size={13} />}>
                 <TextField label="URL" value={elementInfo.href}
                   onChange={v => wrappedUpdateElement({ href: v })} onCommit={() => wrappedUpdateElementCommit({})} placeholder="https://..." />
@@ -1489,49 +1706,11 @@ export function PropertiesPanel({
             {/* 10. Border / Stroke (no enable checkbox — always expanded) */}
             <ElementBorderControls info={elementInfo} onUpdate={wrappedUpdateElement} onCommit={wrappedUpdateElementCommit} />
 
-            {/* 11. Actions */}
-            <Collapse title="Actions" icon={<Settings size={13} />} defaultOpen={false}
-              onOpen={el => {
-                actionsCollapseRef.current = el;
-                el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-              }}>
-              <div className="flex gap-2">
-                <div className="relative" ref={duplicateDropdownRef}>
-                  <button onClick={() => setShowDuplicateDropdown(s => !s)}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-[#f0f2f5] text-[#4a5568] rounded text-[11px] hover:bg-[#e2e7ee] transition-colors" style={{ fontWeight: 500 }}>
-                    <Copy size={10} /> Duplicate
-                  </button>
-                  {showDuplicateDropdown && (
-                    <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-[#dce1e8] rounded-md shadow-lg overflow-hidden min-w-[88px]">
-                      {(['above', 'below', 'left', 'right'] as const).map(dir => (
-                        <button
-                          key={dir}
-                          onClick={() => { onDuplicateElement(dir); setShowDuplicateDropdown(false); actionsCollapseRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }}
-                          className="w-full px-3 py-1.5 text-left text-[11px] text-[#4a5568] hover:bg-[#f0f2f5] capitalize transition-colors"
-                          style={{ fontWeight: 500 }}>
-                          {dir}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <button onClick={onDeleteElement}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 text-red-600 rounded text-[11px] hover:bg-red-100 transition-colors" style={{ fontWeight: 500 }}>
-                  <Trash2 size={10} /> Delete
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-[11px] text-[#718096] select-none">Visible</label>
-                <input type="checkbox" checked={elementInfo.display !== 'none'}
-                  onChange={e => wrappedUpdateElementCommit({ display: e.target.checked ? '' : 'none' })} className="accent-[#004BE2] cursor-pointer" />
-              </div>
-              <p className="text-[10px] text-[#a0aec0] mt-1">M-Top/M-Bottom: vertical gap. M-Left/M-Right: horizontal.</p>
-            </Collapse>
           </>
           </ApplyCtx.Provider>
         )}
 
-        {activeTab === 'properties' && (!elementInfo || !section) && (
+        {(!elementInfo || !section) && (
           <div className="flex flex-col items-center justify-center py-20 text-[#a0aec0]">
             <Paintbrush size={24} className="mb-3 text-[#dce1e8]" />
             <p className="text-[13px]" style={{ fontWeight: 500 }}>Click an element to edit</p>
@@ -1539,149 +1718,6 @@ export function PropertiesPanel({
           </div>
         )}
 
-        {/* ═══ THEME TAB ═══ */}
-        {activeTab === 'theme' && (
-          <>
-            <Collapse title="Presets" icon={<Palette size={13} />}>
-              <div className="grid grid-cols-2 gap-2">
-                {THEME_PRESETS.map(p => (
-                  <button key={p.id} onClick={() => { onSetThemeColors(p.colors); onApplyTheme(p.colors); }}
-                    className="p-2.5 border border-[#dce1e8] rounded-lg hover:border-[#004BE2] hover:shadow-sm transition-all text-left group">
-                    <div className="flex gap-0.5 mb-1.5">
-                      {[p.colors.primary, p.colors.secondary, p.colors.accent, p.colors.button].map((c, i) => (
-                        <div key={i} className="w-4 h-4 rounded-sm border border-black/5" style={{ backgroundColor: c }} />
-                      ))}
-                    </div>
-                    <p className="text-[11px] text-[#4a5568] truncate group-hover:text-[#004BE2]" style={{ fontWeight: 500 }}>{p.name}</p>
-                  </button>
-                ))}
-              </div>
-              {customPresets.length > 0 && (
-                <>
-                  <p className="text-[10px] text-[#a0aec0] px-0.5 pt-2.5 pb-1 tracking-[0.1em]" style={{ fontWeight: 700 }}>MY PRESETS</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {customPresets.map(p => (
-                      <div key={p.id} className="relative group/presetcard">
-                        <button onClick={() => { onSetThemeColors(p.colors); onApplyTheme(p.colors); }}
-                          className="w-full p-2.5 border border-[#dce1e8] rounded-lg hover:border-[#004BE2] hover:shadow-sm transition-all text-left group">
-                          <div className="flex gap-0.5 mb-1.5">
-                            {[p.colors.primary, p.colors.secondary, p.colors.accent, p.colors.button].map((c, i) => (
-                              <div key={i} className="w-4 h-4 rounded-sm border border-black/5" style={{ backgroundColor: c }} />
-                            ))}
-                          </div>
-                          <p className="text-[11px] text-[#4a5568] truncate group-hover:text-[#004BE2]" style={{ fontWeight: 500 }}>{p.name}</p>
-                        </button>
-                        <button
-                          onClick={e => { e.stopPropagation(); onDeleteCustomPreset(p.id); }}
-                          className="absolute top-1 right-1 w-5 h-5 rounded flex items-center justify-center text-[#FF0000] opacity-0 group-hover/presetcard:opacity-100 transition-opacity"
-                          title="Remove preset"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-              <div className="flex gap-1.5 mt-2">
-                <input type="text" value={themeName} onChange={e => setThemeName(e.target.value)} placeholder="Save current as..."
-                  className="flex-1 px-2 py-1 bg-[#f7f8fa] border border-[#dce1e8] rounded text-[11px] outline-none focus:border-[#004BE2]" />
-                <button onClick={() => { if (themeName.trim()) { onSaveTheme(themeName.trim()); setThemeName(''); } }}
-                  className="px-3 py-1 bg-[#004BE2] text-white rounded text-[11px] hover:bg-[#0040c0] transition-colors" style={{ fontWeight: 600 }}>Save</button>
-              </div>
-            </Collapse>
-
-            <Collapse title="WCAG AA Compliance" icon={<AlertTriangle size={13} />} defaultOpen={false}>
-              <p className="text-[11px] text-[#4a5568] leading-relaxed mb-2">
-                Checks contrast ratio between text and background colors. 4.5:1 for normal text, 3:1 for large text.
-              </p>
-              {!section ? (
-                <p className="text-[11px] text-[#a0aec0] text-center py-3">
-                  Click any section on the canvas to check its WCAG AA compliance.
-                </p>
-              ) : (() => {
-                const wcagPairs = extractWcagPairs(section);
-                if (wcagPairs.length === 0) return (
-                  <p className="text-[11px] text-[#a0aec0] text-center py-3">No color pairs detected in this section.</p>
-                );
-                return (
-                  <div className="space-y-1.5">
-                    {wcagPairs.map(({ label, fg, bg, large }) => {
-                      const pass = checkWcagAA(fg, bg, large);
-                      return (
-                        <div key={`${fg}|${bg}`} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] ${pass ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`} style={{ fontWeight: 500 }}>
-                          <span>{pass ? '✓' : '✗'}</span>
-                          <span className="flex-1">{label}</span>
-                          <div className="flex gap-0.5">
-                            <div className="w-3.5 h-3.5 rounded border border-black/10" style={{ backgroundColor: fg }} />
-                            <div className="w-3.5 h-3.5 rounded border border-black/10" style={{ backgroundColor: bg }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-            </Collapse>
-
-            <Collapse title="Templates" icon={<Save size={13} />} defaultOpen={false}>
-              <div className="flex gap-1.5">
-                <input type="text" value={templateName} onChange={e => setTemplateName(e.target.value)} placeholder="Template name"
-                  className="flex-1 px-2 py-1 bg-[#f7f8fa] border border-[#dce1e8] rounded text-[11px] outline-none focus:border-[#004BE2]" />
-                <button onClick={() => { if (templateName.trim()) { onSaveTemplate(templateName.trim()); setTemplateName(''); } }}
-                  className="px-3 py-1 bg-[#004BE2] text-white rounded text-[11px] hover:bg-[#0040c0]" style={{ fontWeight: 600 }}>Save</button>
-              </div>
-
-              {customTemplates.length > 0 && (
-                <>
-                  <p className="text-[10px] text-[#a0aec0] pt-4 pb-2 tracking-[0.1em]" style={{ fontWeight: 700 }}>MY TEMPLATES</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {customTemplates.map(tpl => {
-                      const isActive = activeCustomTemplateId === tpl.id;
-                      return (
-                        <div key={tpl.id} className={`relative group/tplcard rounded overflow-hidden border transition-all cursor-pointer ${isActive ? 'border-[#004BE2] shadow-sm' : 'border-[#e2e7ee] hover:border-[#a0aec0]'}`}>
-                          <button onClick={() => onSelectCustomTemplate(tpl)} className="w-full block">
-                            <div className="overflow-hidden bg-[#f7f8fa]" style={{ height: TPLCONTAINER_H }}>
-                              <iframe srcDoc={tpl.previewHtml} title={tpl.name} scrolling="no"
-                                style={{ width: 600, height: TPLIFRAME_H, border: 'none', display: 'block', transform: `scale(${TPLSCALE})`, transformOrigin: 'top left', pointerEvents: 'none' }} />
-                            </div>
-                          </button>
-                          <div className={`px-1.5 py-1.5 border-t ${isActive ? 'bg-[#004BE2] border-[#004BE2]' : 'bg-white border-[#e2e7ee]'}`}>
-                            <p className={`text-[10px] truncate leading-tight ${isActive ? 'text-white' : 'text-[#4a5568]'}`} style={{ fontWeight: 500 }}>{tpl.name}</p>
-                          </div>
-                          <button onClick={e => { e.stopPropagation(); onDeleteCustomTemplate(tpl.id); }}
-                            className="absolute top-[6px] right-[6px] w-6 h-6 rounded-full flex items-center justify-center text-white opacity-0 group-hover/tplcard:opacity-100 transition-opacity hover:bg-black/75"
-                            style={{ background: 'rgba(0,0,0,0.5)' }}
-                            title="Delete"><Trash2 size={11} /></button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              <p className="text-[10px] text-[#a0aec0] pt-4 pb-2 tracking-[0.1em]" style={{ fontWeight: 700 }}>DEFAULT TEMPLATES</p>
-              <div className="grid grid-cols-2 gap-2">
-                {builtinTemplates.slice(0, 3).map((tpl, i) => {
-                  const isActive = activeBuiltinTemplate === i;
-                  return (
-                    <div key={i} className={`rounded overflow-hidden border transition-all cursor-pointer ${isActive ? 'border-[#004BE2] shadow-sm' : 'border-[#e2e7ee] hover:border-[#a0aec0]'}`}>
-                      <button onClick={() => onSelectBuiltinTemplate(i, tpl.sections)} className="w-full block">
-                        <div className="overflow-hidden bg-[#f7f8fa]" style={{ height: TPLCONTAINER_H }}>
-                          <iframe srcDoc={tpl.html} title={tpl.name} scrolling="no"
-                            style={{ width: 600, height: TPLIFRAME_H, border: 'none', display: 'block', transform: `scale(${TPLSCALE})`, transformOrigin: 'top left', pointerEvents: 'none' }} />
-                        </div>
-                      </button>
-                      <div className={`px-1.5 py-1.5 border-t ${isActive ? 'bg-[#004BE2] border-[#004BE2]' : 'bg-white border-[#e2e7ee]'}`}>
-                        <p className={`text-[10px] truncate leading-tight ${isActive ? 'text-white' : 'text-[#4a5568]'}`} style={{ fontWeight: 500 }}>{tpl.name}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Collapse>
-          </>
-        )}
       </div>
     </div>
   );

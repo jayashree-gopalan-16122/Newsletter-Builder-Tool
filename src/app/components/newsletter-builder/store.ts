@@ -284,7 +284,16 @@ export function cropImageToFrame(
 
 export function useBuilderStore() {
   const [library, setLibrary] = useState<LibrarySection[]>(ALL_SECTIONS);
-  const [canvas, setCanvas] = useState<CanvasSection[]>(() => makeDefaultCanvas());
+  const [canvas, setCanvas] = useState<CanvasSection[]>(() => {
+    try {
+      const raw = localStorage.getItem('newsletterBuilderSession');
+      if (raw) {
+        const sections = JSON.parse(raw) as CanvasSection[];
+        if (sections && sections.length > 0) return sections;
+      }
+    } catch {}
+    return makeDefaultCanvas();
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
 
@@ -1231,7 +1240,7 @@ details:not([open]) [data-accordion-arrow] { transform: rotate(-90deg); }
 }
 </style>
 </head>
-<body style="margin:0;padding:0;background-color:#ffffff;">
+<body style="margin:0;padding:0;background-color:#ffffff;font-family:'Zoho Puvi',Arial,sans-serif;">
 <center style="width:100%;background-color:#ffffff;">
 <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" width="600" style="width:600px;"><tr><td><![endif]-->
 <div class="email-container" style="max-width:600px;margin:0 auto;">

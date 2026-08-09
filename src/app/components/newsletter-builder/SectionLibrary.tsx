@@ -242,9 +242,6 @@ export function SectionLibrary({
     <div className="flex flex-col h-full bg-[#fafbfc]">
       {/* Header */}
       <div className="px-3 pt-3 pb-2 space-y-2 border-b border-[#e2e7ee] bg-white">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[11px] tracking-[0.12em] text-[#4a5568]" style={{ fontWeight: 700 }}>SECTION LIBRARY</h2>
-        </div>
 
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#a0aec0]" />

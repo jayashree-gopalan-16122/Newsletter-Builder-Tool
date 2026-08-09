@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PreviewMode } from './types';
-import { Undo2, Redo2, Monitor, Tablet, Smartphone, Copy, Download, Eye, Code, AlertTriangle, X, Trash2, RotateCcw } from 'lucide-react';
+import { Undo2, Redo2, Monitor, Tablet, Smartphone, Copy, Download, Eye, Code, AlertTriangle, X, Trash2, LayoutTemplate } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Props {
@@ -15,10 +15,10 @@ interface Props {
   onExportZip: () => Promise<void>;
   onValidate: () => string[];
   onClearAll: () => void;
-  onBuildFromScratch: () => void;
+  onSaveTemplate: (name: string) => void;
 }
 
-export function Toolbar({ previewMode, canUndo, canRedo, sectionCount, onUndo, onRedo, onPreviewMode, onExportHtml, onExportZip, onValidate, onClearAll, onBuildFromScratch }: Props) {
+export function Toolbar({ previewMode, canUndo, canRedo, sectionCount, onUndo, onRedo, onPreviewMode, onExportHtml, onExportZip, onValidate, onClearAll, onSaveTemplate }: Props) {
   const [showPreview, setShowPreview] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [showCode, setShowCode] = useState(false);
@@ -26,7 +26,8 @@ export function Toolbar({ previewMode, canUndo, canRedo, sectionCount, onUndo, o
   const [showValidation, setShowValidation] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
-  const [showConfirmScratch, setShowConfirmScratch] = useState(false);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [saveTemplateName, setSaveTemplateName] = useState('');
 
   const handleCopy = () => {
     navigator.clipboard.writeText(onExportHtml()).then(() => toast.success('HTML copied to clipboard'));
@@ -57,9 +58,8 @@ export function Toolbar({ previewMode, canUndo, canRedo, sectionCount, onUndo, o
 
   return (
     <>
-      <div className="h-[44px] bg-[#0E0E0E] flex items-center px-3 gap-1 shrink-0">
+      <div className="h-[44px] bg-[#0E0E0E] flex items-center px-3 gap-1 shrink-0 relative">
         <span className="text-[13px] text-white mr-2" style={{ fontWeight: 700 }}>Newsletter Builder</span>
-        <span className="text-[10px] text-[#aab4c4] bg-[#1a1a2e] px-2 py-0.5 rounded-full mr-2" style={{ fontWeight: 600 }}>{sectionCount} sections</span>
 
         <div className="w-px h-5 bg-[#2d3748] mx-1" />
 
@@ -72,9 +72,9 @@ export function Toolbar({ previewMode, canUndo, canRedo, sectionCount, onUndo, o
           <Redo2 size={15} />
         </button>
 
-        <div className="w-px h-5 bg-[#2d3748] mx-1" />
+        <div className="flex-1" />
 
-        <div className="flex items-center bg-[#1a1a2e] rounded-md p-[2px]">
+        <div className="flex items-center bg-[#1a1a2e] rounded-md p-[2px]" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
           {([
             { mode: 'desktop' as const, icon: <Monitor size={12} />, label: 'Desktop', w: '600px' },
             { mode: 'tablet' as const, icon: <Tablet size={12} />, label: 'Tablet', w: '480px' },
@@ -89,20 +89,16 @@ export function Toolbar({ previewMode, canUndo, canRedo, sectionCount, onUndo, o
           ))}
         </div>
 
-        <div className="w-px h-5 bg-[#2d3748] mx-1" />
-
-        <button
-          onClick={() => { if (sectionCount > 0) setShowConfirmScratch(true); else onBuildFromScratch(); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 border border-white/20 text-white/70 hover:text-white hover:border-white/40 rounded text-[11px] transition-colors" style={{ fontWeight: 600 }}>
-          <RotateCcw size={12} /> Build from Scratch
-        </button>
-
         <div className="flex-1" />
 
         <button onClick={() => { if (sectionCount > 0) setShowConfirmClear(true); }}
           disabled={sectionCount === 0}
           className="flex items-center gap-1 px-2.5 py-1 text-white/40 hover:text-red-400 disabled:text-white/10 rounded hover:bg-white/5 text-[11px] transition-colors" style={{ fontWeight: 500 }}>
           <Trash2 size={13} /> Clear All
+        </button>
+        <button onClick={() => setShowSaveTemplate(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-white/20 text-white/70 hover:text-white hover:border-white/40 rounded text-[11px] transition-colors" style={{ fontWeight: 600 }}>
+          <LayoutTemplate size={12} /> Save as Template
         </button>
         <button onClick={async () => { await onExportZip(); }}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-[#004BE2] text-white rounded text-[11px] hover:bg-[#003cc0] transition-colors" style={{ fontWeight: 600 }}>
@@ -170,26 +166,41 @@ export function Toolbar({ previewMode, canUndo, canRedo, sectionCount, onUndo, o
         </div>
       )}
 
-      {/* Build from Scratch confirmation */}
-      {showConfirmScratch && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6 backdrop-blur-sm" onClick={() => setShowConfirmScratch(false)}>
+      {/* Save as Template */}
+      {showSaveTemplate && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6 backdrop-blur-sm" onClick={() => { setShowSaveTemplate(false); setSaveTemplateName(''); }}>
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-2 px-5 py-4 border-b border-[#e2e7ee]">
-              <RotateCcw size={16} className="text-[#004BE2]" />
-              <h3 className="text-[14px] text-[#0E0E0E] flex-1" style={{ fontWeight: 600 }}>Build from Scratch?</h3>
-              <button onClick={() => setShowConfirmScratch(false)} className="w-7 h-7 rounded-full hover:bg-[#f0f2f5] flex items-center justify-center text-[#718096]"><X size={16} /></button>
+              <LayoutTemplate size={16} className="text-[#004BE2]" />
+              <h3 className="text-[14px] text-[#0E0E0E] flex-1" style={{ fontWeight: 600 }}>Save as Template</h3>
+              <button onClick={() => { setShowSaveTemplate(false); setSaveTemplateName(''); }} className="w-7 h-7 rounded-full hover:bg-[#f0f2f5] flex items-center justify-center text-[#718096]"><X size={16} /></button>
             </div>
             <div className="px-5 py-3">
-              <p className="text-[12px] text-[#4a5568]">This will clear all {sectionCount} section{sectionCount !== 1 ? 's' : ''} from the canvas and start fresh. This action cannot be undone.</p>
+              <input
+                type="text"
+                value={saveTemplateName}
+                onChange={e => setSaveTemplateName(e.target.value)}
+                placeholder="Template name"
+                className="w-full px-3 py-2 bg-[#f7f8fa] border border-[#dce1e8] rounded-md text-[12px] outline-none focus:border-[#004BE2]"
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && saveTemplateName.trim()) {
+                    onSaveTemplate(saveTemplateName.trim());
+                    setShowSaveTemplate(false);
+                    setSaveTemplateName('');
+                  }
+                }}
+                autoFocus
+              />
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-[#e2e7ee]">
-              <button onClick={() => setShowConfirmScratch(false)}
+              <button onClick={() => { setShowSaveTemplate(false); setSaveTemplateName(''); }}
                 className="flex-1 py-2 border border-[#dce1e8] rounded-md text-[12px] text-[#4a5568] hover:bg-[#f7f8fa]" style={{ fontWeight: 500 }}>
                 Cancel
               </button>
-              <button onClick={() => { onBuildFromScratch(); setShowConfirmScratch(false); toast('Canvas cleared'); }}
+              <button
+                onClick={() => { if (saveTemplateName.trim()) { onSaveTemplate(saveTemplateName.trim()); setShowSaveTemplate(false); setSaveTemplateName(''); } }}
                 className="flex-1 py-2 bg-[#004BE2] text-white rounded-md text-[12px] hover:bg-[#003cc0] transition-colors" style={{ fontWeight: 600 }}>
-                Build from Scratch
+                Save
               </button>
             </div>
           </div>

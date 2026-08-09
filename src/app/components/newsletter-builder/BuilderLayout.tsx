@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useBuilderStore } from './store';
 import { SectionLibrary } from './SectionLibrary';
+import { LeftPanel } from './LeftPanel';
 import { Canvas } from './Canvas';
 import { PropertiesPanel } from './PropertiesPanel';
 import { Toolbar } from './Toolbar';
 import { TEMPLATE_NAMES, CustomTemplate } from './TemplatesDrawer';
-import { LibrarySection } from './types';
+import { LibrarySection, CanvasSection } from './types';
 import { loadContentStore, hasContentToRestore, ContentStore } from './content-store';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -24,13 +26,17 @@ export function BuilderLayout() {
   });
   // Track previous element ID to only auto-switch when user clicks a NEW element
   const prevElIdRef = useRef<string | null>(null);
+  const isFirstRenderRef = useRef(true);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [savedContentStore, setSavedContentStore] = useState<ContentStore | null>(null);
+  const [savedCanvasSections, setSavedCanvasSections] = useState<CanvasSection[] | null>(null);
+  const [showStartFreshCover, setShowStartFreshCover] = useState(false);
   const [canvasFading, setCanvasFading] = useState(false);
 
   // Panel open/closed state — always collapsed on load, never persisted
   const [leftPanelOpen, setLeftPanelOpen] = useState<boolean>(false);
   const [rightPanelOpen, setRightPanelOpen] = useState<boolean>(false);
+  const [savedTemplatesVersion, setSavedTemplatesVersion] = useState(0);
 
   // Auto-open both panels when user selects a section or element on canvas
   useEffect(() => {
@@ -93,8 +99,25 @@ export function BuilderLayout() {
     return () => window.removeEventListener('keydown', handler);
   }, [store]);
 
-  // On mount, check for saved content from a previous session
+  // On mount, check for saved canvas session first, then fall back to content store
   useEffect(() => {
+    try {
+      if (localStorage.getItem('startFresh') === 'true') {
+        localStorage.removeItem('startFresh');
+        return;
+      }
+    } catch {}
+    try {
+      const raw = localStorage.getItem('newsletterBuilderSession');
+      if (raw) {
+        const sections = JSON.parse(raw) as CanvasSection[];
+        if (sections && sections.length > 0) {
+          setSavedCanvasSections(sections);
+          setShowResumeModal(true);
+          return;
+        }
+      }
+    } catch {}
     const saved = loadContentStore();
     if (saved && hasContentToRestore(saved)) {
       setSavedContentStore(saved);
@@ -102,17 +125,34 @@ export function BuilderLayout() {
     }
   }, []);
 
+  // Auto-save canvas on every change; skip the very first render to avoid
+  // persisting the default canvas before a real session check has run.
+  useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem('newsletterBuilderSession', JSON.stringify(store.canvas));
+    } catch {}
+  }, [store.canvas]);
+
   const handleResume = useCallback(() => {
-    if (savedContentStore) {
+    // canvas already pre-loaded from session; only run content-store injection as fallback
+    if (!savedCanvasSections && savedContentStore) {
       store.injectSavedContent(savedContentStore);
     }
     setShowResumeModal(false);
-  }, [savedContentStore, store]);
+  }, [savedCanvasSections, savedContentStore, store]);
 
   const handleStartFresh = useCallback(() => {
-    store.clearContentStore();
-    setShowResumeModal(false);
-  }, [store]);
+    setShowStartFreshCover(true);
+    try {
+      localStorage.setItem('startFresh', 'true');
+      localStorage.removeItem('newsletterBuilderSession');
+    } catch {}
+    window.location.reload();
+  }, []);
 
   const applyTemplate = useCallback((idx: number, sections: LibrarySection[]) => {
     store.loadLibrarySections(sections);
@@ -178,6 +218,35 @@ export function BuilderLayout() {
     setActiveCustomTemplateId(prev => prev === id ? null : prev);
   }, []);
 
+  const handleSaveUserTemplate = useCallback((name: string) => {
+    const tpl = {
+      id: 'ut-' + Date.now(),
+      name,
+      thumbnail: '',
+      sections: JSON.parse(JSON.stringify(store.canvas)) as CanvasSection[],
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      const raw = localStorage.getItem('userSavedTemplates');
+      const existing = raw ? JSON.parse(raw) : [];
+      existing.push(tpl);
+      localStorage.setItem('userSavedTemplates', JSON.stringify(existing));
+    } catch {}
+    setSavedTemplatesVersion(v => v + 1);
+    toast.success(`Template "${name}" saved!`);
+  }, [store]);
+
+  const handleLoadUserTemplate = useCallback((sections: CanvasSection[], name: string) => {
+    setCanvasFading(true);
+    setTimeout(() => {
+      store.loadCanvasSections(sections);
+      setActiveBuiltinTemplate(null);
+      setActiveCustomTemplateId(null);
+      toast.success(`Loaded "${name}"`);
+      requestAnimationFrame(() => setCanvasFading(false));
+    }, 100);
+  }, [store]);
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#e8ecf2]">
       <Toolbar
@@ -192,7 +261,7 @@ export function BuilderLayout() {
         onExportZip={store.exportZip}
         onValidate={store.validate}
         onClearAll={() => { store.clearAll(); setLeftPanelOpen(true); setRightPanelOpen(false); }}
-        onBuildFromScratch={() => { store.clearAll(); setLeftPanelOpen(true); setRightPanelOpen(false); }}
+        onSaveTemplate={handleSaveUserTemplate}
       />
 
       <div className="flex-1 overflow-hidden relative">
@@ -208,8 +277,8 @@ export function BuilderLayout() {
           }}
         >
           <div className="w-[260px] h-full border-r border-[#d5dbe4]">
-            <SectionLibrary
-              sections={store.library}
+            <LeftPanel
+              library={store.library}
               search={store.searchQuery}
               category={store.categoryFilter}
               selectedCanvasId={store.selectedId}
@@ -232,6 +301,12 @@ export function BuilderLayout() {
                 const count = store.importHtml(html, name);
                 toast.success(`Imported ${count} section(s) from "${name}"`);
               }}
+              sectionCount={store.canvas.length}
+              activeBuiltinTemplate={activeBuiltinTemplate}
+              onBuildFromScratch={() => { store.clearAll(); setLeftPanelOpen(true); setRightPanelOpen(false); }}
+              onSelectBuiltinTemplate={handleTemplateSelect}
+              onLoadUserTemplate={handleLoadUserTemplate}
+              savedTemplatesVersion={savedTemplatesVersion}
             />
           </div>
         </div>
@@ -362,15 +437,21 @@ export function BuilderLayout() {
 
       </div>
 
+      {/* Full-viewport cover to prevent canvas flash during Start Fresh reload */}
+      {showStartFreshCover && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-[#e8ecf2]" />,
+        document.body
+      )}
+
       {/* Resume previous session modal */}
-      {showResumeModal && (
+      {showResumeModal && createPortal(
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full">
             <div className="px-5 py-4 border-b border-[#e2e7ee]">
-              <h3 className="text-[14px] text-[#0E0E0E]" style={{ fontWeight: 600 }}>Resume Previous Work?</h3>
+              <h3 className="text-[14px] text-[#0E0E0E]" style={{ fontWeight: 600 }}>Resume Session</h3>
             </div>
             <div className="px-5 py-3">
-              <p className="text-[12px] text-[#4a5568]">You have saved edits from a previous session. Would you like to restore your content?</p>
+              <p className="text-[12px] text-[#4a5568]">You have unsaved work. Would you like to continue where you left off?</p>
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-[#e2e7ee]">
               <button onClick={handleStartFresh}
@@ -383,7 +464,8 @@ export function BuilderLayout() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>

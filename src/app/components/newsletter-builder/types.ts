@@ -139,12 +139,16 @@ export interface SelectedElement {
 // ─── Fonts ────────────────────────────────────────────────────
 
 export const FONT_FAMILIES = [
-  'Arial',
-  'Helvetica',
-  'Helvetica Neue',
+  'Zoho Puvi',
+  'Inter',
+  'DM Sans',
+  'Plus Jakarta Sans',
   'Lato',
+  'Poppins',
   'Roboto',
-  'sans-serif',
+  'Playfair Display',
+  'Merriweather',
+  'Georgia',
 ];
 
 export const FONT_WEIGHTS = [

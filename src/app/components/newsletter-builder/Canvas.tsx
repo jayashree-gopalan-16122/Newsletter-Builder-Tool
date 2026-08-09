@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { CanvasSection, SectionElement, LibrarySection, PreviewMode, SectionStyles } from './types';
 import { toReactAttrs } from './html-utils';
-import { GripVertical, Trash2, ChevronUp, ChevronDown, Plus, Minus } from 'lucide-react';
+import { GripVertical, Trash2, ChevronUp, ChevronDown, Plus, Minus, Copy } from 'lucide-react';
 
 // ─── Feature group utilities ──────────────────────────────────
 
@@ -73,8 +73,13 @@ interface Props {
 
 function outerWrapperStyle(styles: SectionStyles): React.CSSProperties {
   const css: React.CSSProperties = {};
-  if (styles.backgroundColor) css.backgroundColor = styles.backgroundColor;
-  if (styles.backgroundGradient) css.background = styles.backgroundGradient;
+  if (styles.backgroundGradient) {
+    css.background = styles.backgroundGradient;
+    css.backgroundColor = 'transparent';
+  } else if (styles.backgroundColor) {
+    css.backgroundColor = styles.backgroundColor;
+    css.background = 'none';
+  }
   if (styles.backgroundImage) {
     css.backgroundImage = `url('${styles.backgroundImage}')`;
     css.backgroundSize = styles.backgroundFit || 'cover';
@@ -438,7 +443,7 @@ function RenderElement({ el, selectedElementId, flashedElementIds, onSelectEl, o
 export function Canvas({
   sections, selectedId, selectedElementId, previewMode, library,
   flashedElementIds = [],
-  onSelect, onSelectEl, onAdd, onRemove, onMove,
+  onSelect, onSelectEl, onAdd, onRemove, onDuplicate, onMove,
   onPatchElement, onToggleFeatureGroup, onAddFeatureGroupAfter, onReorderFeatureGroup,
 }: Props) {
   const [dropIdx, setDropIdx] = useState<number | null>(null);
@@ -880,7 +885,7 @@ export function Canvas({
         )}
         <div
           className="mx-auto transition-all duration-300 relative"
-          style={{ width, minHeight: 300, borderRadius: 2, boxShadow: '0 4px 32px rgba(0,0,0,0.12)', background: '#fff', overflow: 'visible' }}
+          style={{ width, minHeight: 300, borderRadius: 2, boxShadow: '0 4px 32px rgba(0,0,0,0.12)', background: '#fff', overflow: 'visible', fontFamily: "'Zoho Puvi', Arial, sans-serif" }}
           onDragOver={e => e.preventDefault()}
           onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropIndicator(null); }}
           onDrop={handleCanvasDrop}
@@ -1037,6 +1042,7 @@ export function Canvas({
                     <div className="w-px h-3.5 bg-[#334155] mx-0.5" />
                     <button onClick={e => { e.stopPropagation(); index > 0 && onMove(index, index - 1); }} disabled={index === 0} className="p-1 text-white/50 hover:text-white disabled:text-white/20 rounded hover:bg-white/10 transition-colors" title="Move Up"><ChevronUp size={13} /></button>
                     <button onClick={e => { e.stopPropagation(); index < sections.length - 1 && onMove(index, index + 1); }} disabled={index === sections.length - 1} className="p-1 text-white/50 hover:text-white disabled:text-white/20 rounded hover:bg-white/10 transition-colors" title="Move Down"><ChevronDown size={13} /></button>
+                    <button onClick={e => { e.stopPropagation(); onDuplicate(section.id); }} className="p-1 text-white/50 hover:text-white rounded hover:bg-white/10 transition-colors" title="Duplicate"><Copy size={13} /></button>
                     <div className="w-px h-3.5 bg-[#334155] mx-0.5" />
                     <button onClick={e => { e.stopPropagation(); onRemove(section.id); }} className="p-1 text-white/50 hover:text-[#f87171] rounded hover:bg-white/10 transition-colors" title="Delete"><Trash2 size={13} /></button>
                   </div>
