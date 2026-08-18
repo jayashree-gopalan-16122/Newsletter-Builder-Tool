@@ -282,6 +282,43 @@ export function cropImageToFrame(
   });
 }
 
+// ─── Element style normalisation ─────────────────────────────
+// Returns only the style keys that were missing/empty, filled with the
+// resolved inherited value (from elementToInfo) or a sensible default.
+// Called once on element selection — never during render or export.
+
+function computeNormalisedChanges(
+  element: SectionElement,
+  ancestors: SectionElement[]
+): Record<string, string> {
+  const changes: Record<string, string> = {};
+  const info = elementToInfo(element, ancestors);
+  const s = element.styles;
+
+  const fill = (key: string, resolved: string, fallback: string) => {
+    if (!s[key]?.trim()) changes[key] = resolved || fallback;
+  };
+
+  // Inherited typography — prefer resolved (inherited) value over hardcoded fallback
+  fill('fontFamily',  info.fontFamily,  "'Zoho Puvi', Arial, sans-serif");
+  fill('fontSize',    info.fontSize,    '16px');
+  fill('fontWeight',  info.fontWeight,  '400');
+  fill('color',       info.color,       '#000000');
+  fill('textAlign',   info.textAlign,   'left');
+  fill('lineHeight',  info.lineHeight,  '1.5');
+
+  // Box model (not inherited — use hardcoded defaults)
+  fill('paddingTop',      '', '0px');
+  fill('paddingBottom',   '', '0px');
+  fill('paddingLeft',     '', '0px');
+  fill('paddingRight',    '', '0px');
+  fill('borderRadius',    '', '0px');
+  fill('borderWidth',     '', '0px');
+  fill('backgroundColor', '', 'transparent');
+
+  return changes;
+}
+
 export function useBuilderStore() {
   const [library, setLibrary] = useState<LibrarySection[]>(ALL_SECTIONS);
   const [canvas, setCanvas] = useState<CanvasSection[]>(() => {
@@ -511,6 +548,27 @@ export function useBuilderStore() {
     return elementToInfo(found.el, found.ancestors);
   }, [canvas, selectedId, selectedElementId]);
 
+  const selectElement = useCallback((elId: string | null) => {
+    if (!elId) {
+      setSelectedElementId(null);
+      return;
+    }
+    setCanvas(prev => {
+      for (const sec of prev) {
+        const found = findElementWithAncestors(sec.elements, elId);
+        if (!found) continue;
+        const changes = computeNormalisedChanges(found.el, found.ancestors);
+        if (Object.keys(changes).length === 0) return prev;
+        return prev.map(s =>
+          s.id !== sec.id ? s :
+          { ...s, elements: updateElementInTree(s.elements, elId, changes) }
+        );
+      }
+      return prev;
+    });
+    setSelectedElementId(elId);
+  }, []);
+
   const updateElement = useCallback((changes: Partial<Record<string, string>>) => {
     if (!selectedId || !selectedElementId) return;
     setCanvas(prev => prev.map(s => {
@@ -619,6 +677,19 @@ export function useBuilderStore() {
           saveContentStore(contentStoreRef.current);
         }
       }
+      return n;
+    });
+  }, [pushHist]);
+
+  // Apply multiple element patches as a single undo step
+  const batchPatchElements = useCallback((patches: Array<{sectionId: string; elId: string; changes: Record<string, string>}>) => {
+    setCanvas(prev => {
+      const n = patches.reduce((acc, {sectionId, elId, changes}) =>
+        acc.map(s => s.id === sectionId
+          ? { ...s, elements: updateElementInTree(s.elements, elId, changes) }
+          : s
+        ), prev);
+      pushHist(n);
       return n;
     });
   }, [pushHist]);
@@ -1400,10 +1471,10 @@ ${sectionsHtmlAcc}
     library, canvas, selectedId, selected, selectedElementId, previewMode,
     searchQuery, categoryFilter, themeColors, customPresets, savedTemplates,
     canUndo, canRedo, flashedElementIds,
-    setSelectedId, setSelectedElementId, setPreviewMode, setSearchQuery, setCategoryFilter,
+    setSelectedId, setSelectedElementId, selectElement, setPreviewMode, setSearchQuery, setCategoryFilter,
     addSection, removeSection, replaceSection, duplicateSection, moveSection,
     updateHtml, updateHtmlLive, commitHtml, updateStyles, updateStylesLive, updateName,
-    getElementInfo, updateElement, updateElementAndCommit, patchElement,
+    getElementInfo, updateElement, updateElementAndCommit, patchElement, batchPatchElements,
     toggleFeatureGroup, addFeatureGroupAfter, reorderFeatureGroup,
     replaceElement, getSelectedElement,
     deleteSelectedElement, duplicateSelectedElement,

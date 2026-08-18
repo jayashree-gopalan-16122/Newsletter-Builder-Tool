@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
   CanvasSection, SectionElement, ThemeColors, ThemePreset, SectionStyles,
@@ -12,7 +13,7 @@ import { GradientEditor } from './GradientEditor';
 import {
   Palette, Type, Settings, Image as ImageIcon, Link as LinkIcon, Sliders, ChevronDown,
   ChevronRight, Save, Paintbrush, AlertTriangle,
-  Copy, Trash2, MoveVertical, Sun, Lock, Unlock, Plus, ImagePlus, Square, Link2, LayoutTemplate, X,
+  Copy, Trash2, MoveVertical, Sun, Lock, Unlock, Plus, ImagePlus, Square, LayoutTemplate, X,
 } from 'lucide-react';
 
 interface Props {
@@ -42,12 +43,16 @@ interface Props {
   onDuplicateElement: (direction?: 'above' | 'below' | 'left' | 'right') => void;
   onReplaceElement: (newElement: SectionElement) => void;
   onPatchElement: (sectionId: string, elId: string, changes: Partial<Record<string, string>>) => void;
+  onBatchPatchElements: (patches: Array<{sectionId: string; elId: string; changes: Record<string, string>}>) => void;
+  canvasLength: number;
   getSelectedElement: () => SectionElement | null;
   onApplyStylesGlobally: (sourceSectionId: string, styles: Partial<SectionStyles>, scope: ApplyScope) => number;
   onApplyElementGlobally: (sourceSectionId: string, sourceElementId: string, changes: Partial<Record<string, string>>, scope: ApplyScope) => number;
   selectedElementId: string | null;
   activeTab: 'properties' | 'theme';
   onSetTab: (t: 'properties' | 'theme') => void;
+  allSections: CanvasSection[];
+  onBulkReset: (snapshot: CanvasSection[]) => void;
 }
 
 // ─── WCAG extraction helpers ─────────────────────────────────
@@ -143,7 +148,337 @@ function extractWcagPairs(section: CanvasSection): WcagPair[] {
 
 // ─── UI Primitives ────────────────────────────────────────────
 
-function Collapse({ title, icon, children, defaultOpen = true, applyPropKeys, onOpen }: {
+// ─── Bulk Apply helpers ───────────────────────────────────────
+
+interface BulkPropGroup {
+  id: string;
+  keys: string[];
+  label: string;
+  displayValue: string;
+}
+
+function fmtBulkNum(v: string): string { return v ? v.replace(/px$/, '') + 'px' : '—'; }
+function fmtBulkFont(v: string): string { return v?.split(',')[0]?.replace(/'/g, '').trim() || ''; }
+const BULK_WEIGHT_LABELS: Record<string, string> = {
+  '100': 'Thin', '300': 'Light', '400': 'Regular', '500': 'Medium',
+  '600': 'Semibold', '700': 'Bold', '800': 'Extrabold', '900': 'Black',
+};
+function fmtBulkWeight(v: string): string { return BULK_WEIGHT_LABELS[v?.trim()] || v || '—'; }
+const BULK_ALIGN_LABELS: Record<string, string> = { left: 'Left', center: 'Center', right: 'Right', justify: 'Justify' };
+function fmtBulkAlign(v: string): string { return BULK_ALIGN_LABELS[v?.toLowerCase()] || v || '—'; }
+function fmtBulkOpacity(v: string): string { return Math.round((parseFloat(v) || 1) * 100) + '%'; }
+function fmtBulkBorderWidth(v: string): string { return (v && v !== '0px' && v !== '0') ? fmtBulkNum(v) : 'Off'; }
+
+function getPropsForElModal(el: SectionElement, ei: ElementInfo): BulkPropGroup[] {
+  const s = el.styles;
+  const opacity: BulkPropGroup = { id: 'opacity', keys: ['opacity'], label: 'Opacity', displayValue: fmtBulkOpacity(ei.opacity) };
+  const paddingProps: BulkPropGroup[] = [
+    { id: 'paddingTop',    keys: ['paddingTop'],    label: 'Top Padding',    displayValue: fmtBulkNum(s.paddingTop || '') },
+    { id: 'paddingBottom', keys: ['paddingBottom'], label: 'Bottom Padding', displayValue: fmtBulkNum(s.paddingBottom || '') },
+    { id: 'paddingLeft',   keys: ['paddingLeft'],   label: 'Left Padding',   displayValue: fmtBulkNum(s.paddingLeft || '') },
+    { id: 'paddingRight',  keys: ['paddingRight'],  label: 'Right Padding',  displayValue: fmtBulkNum(s.paddingRight || '') },
+  ];
+  const borderProps: BulkPropGroup[] = [
+    { id: 'borderWidth',  keys: ['borderWidth'],  label: 'Border Thickness', displayValue: fmtBulkBorderWidth(s.borderWidth || '') },
+    { id: 'borderColor',  keys: ['borderColor'],  label: 'Border Color',     displayValue: s.borderColor || '—' },
+    { id: 'borderStyle',  keys: ['borderStyle'],  label: 'Border Style',     displayValue: s.borderStyle || '—' },
+    { id: 'borderRadius', keys: ['borderRadius'], label: 'Roundness',        displayValue: fmtBulkNum(s.borderRadius || '') },
+  ];
+
+  if (el.type === 'text' || el.type === 'link') {
+    return [
+      { id: 'font',       keys: ['fontFamily'], label: 'Font',        displayValue: fmtBulkFont(ei.fontFamily) || '—' },
+      { id: 'size',       keys: ['fontSize'],   label: 'Size',        displayValue: fmtBulkNum(ei.fontSize) },
+      { id: 'color',      keys: ['color'],       label: 'Color',       displayValue: ei.color || '—' },
+      { id: 'weight',     keys: ['fontWeight'], label: 'Weight',      displayValue: fmtBulkWeight(ei.fontWeight) },
+      { id: 'align',      keys: ['textAlign'],  label: 'Align',       displayValue: fmtBulkAlign(ei.textAlign) },
+      { id: 'lineHeight', keys: ['lineHeight'], label: 'Line Height', displayValue: ei.lineHeight || '—' },
+      opacity,
+      ...paddingProps,
+      ...borderProps,
+    ];
+  }
+  if (el.type === 'button') {
+    return [
+      { id: 'font',       keys: ['fontFamily'],     label: 'Font',             displayValue: fmtBulkFont(ei.fontFamily) || '—' },
+      { id: 'size',       keys: ['fontSize'],        label: 'Size',             displayValue: fmtBulkNum(ei.fontSize) },
+      { id: 'color',      keys: ['color'],            label: 'Text Color',       displayValue: ei.color || '—' },
+      { id: 'weight',     keys: ['fontWeight'],      label: 'Weight',           displayValue: fmtBulkWeight(ei.fontWeight) },
+      { id: 'bgColor',    keys: ['backgroundColor'], label: 'Background Color', displayValue: ei.backgroundColor || '—' },
+      { id: 'borderRadius', keys: ['borderRadius'],  label: 'Border Radius',    displayValue: fmtBulkNum(s.borderRadius || '') },
+      ...paddingProps,
+      { id: 'borderWidth', keys: ['borderWidth'], label: 'Border Thickness', displayValue: fmtBulkBorderWidth(s.borderWidth || '') },
+      { id: 'borderColor', keys: ['borderColor'], label: 'Border Color',     displayValue: s.borderColor || '—' },
+      { id: 'borderStyle', keys: ['borderStyle'], label: 'Border Style',     displayValue: s.borderStyle || '—' },
+    ];
+  }
+  if (el.type === 'image') {
+    return [
+      { id: 'borderRadius', keys: ['borderRadius'], label: 'Border Radius', displayValue: fmtBulkNum(s.borderRadius || '') },
+      { id: 'borderWidth',  keys: ['borderWidth'],  label: 'Border Thickness', displayValue: fmtBulkBorderWidth(s.borderWidth || '') },
+      { id: 'borderColor',  keys: ['borderColor'],  label: 'Border Color',   displayValue: s.borderColor || '—' },
+      { id: 'borderStyle',  keys: ['borderStyle'],  label: 'Border Style',   displayValue: s.borderStyle || '—' },
+      opacity,
+      ...paddingProps,
+    ];
+  }
+  if (el.type === 'icon') {
+    const iconSize = s.fontSize || s.width || '';
+    return [
+      { id: 'size',  keys: ['fontSize', 'width', 'height'], label: 'Size',  displayValue: fmtBulkNum(iconSize) },
+      { id: 'color', keys: ['color'],                         label: 'Color', displayValue: ei.color || '—' },
+      opacity,
+      ...paddingProps,
+      ...borderProps,
+    ];
+  }
+  if (el.type === 'container') {
+    const bg = s.background || '';
+    return [
+      { id: 'bgColor',    keys: ['backgroundColor'], label: 'Background Color',    displayValue: s.backgroundColor || '—' },
+      { id: 'bgGradient', keys: ['background'],       label: 'Background Gradient', displayValue: bg.includes('gradient') ? 'Custom' : 'None' },
+      opacity,
+      ...paddingProps,
+      ...borderProps,
+    ];
+  }
+  return [];
+}
+
+const SECTION_PRECHECKED: Record<string, string[]> = {
+  'Typography':       ['font', 'size', 'color', 'weight', 'align', 'lineHeight'],
+  'Background':       ['bgColor', 'bgGradient'],
+  'Background Color': ['bgColor'],
+  'Rounded Corners':  ['borderRadius'],
+  'Appearance':       ['opacity'],
+  'Padding':          ['paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight'],
+  'Border':           ['borderWidth', 'borderColor', 'borderStyle', 'borderRadius'],
+  'Image':            ['borderRadius', 'borderWidth', 'borderColor', 'borderStyle', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight'],
+  'Icon':             ['size', 'color'],
+};
+
+function findElsByType(elements: SectionElement[], type: string): SectionElement[] {
+  const result: SectionElement[] = [];
+  const walk = (els: SectionElement[]) => {
+    for (const el of els) {
+      if (el.type === type) result.push(el);
+      if (el.children?.length) walk(el.children);
+    }
+  };
+  walk(elements);
+  return result;
+}
+
+// ─── Bulk Apply Modal ─────────────────────────────────────────
+
+interface BulkModalProps {
+  sectionTitle: string;
+  anchorRect: DOMRect;
+  el: SectionElement;
+  elementInfo: ElementInfo;
+  section: CanvasSection;
+  allSections: CanvasSection[];
+  masterSnapshotRef: React.MutableRefObject<CanvasSection[] | null>;
+  bulkApplyDone: boolean;
+  onBulkApplyDone: () => void;
+  onBatchPatch: (patches: Array<{ sectionId: string; elId: string; changes: Record<string, string> }>) => void;
+  onBulkReset: (snapshot: CanvasSection[]) => void;
+  onClose: () => void;
+  onShowSuccessToast: (count: number) => void;
+  onShowRevertToast: () => void;
+}
+
+function BulkApplyModal({
+  sectionTitle, anchorRect, el, elementInfo, section, allSections, masterSnapshotRef,
+  bulkApplyDone, onBulkApplyDone, onBatchPatch, onBulkReset, onClose,
+  onShowSuccessToast, onShowRevertToast,
+}: BulkModalProps) {
+  const propDefs = getPropsForElModal(el, elementInfo);
+  const preCheckedIds = SECTION_PRECHECKED[sectionTitle] ?? propDefs.map(p => p.id);
+  const [scope, setScope] = useState<'section' | 'all' | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(() => new Set(propDefs.filter(p => preCheckedIds.includes(p.id)).map(p => p.id)));
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  const allChecked = propDefs.length > 0 && propDefs.every(p => checked.has(p.id));
+  const noneChecked = checked.size === 0;
+  const canApply = scope !== null && !noneChecked;
+
+  const toggleAll = () => {
+    setChecked(allChecked ? new Set() : new Set(propDefs.map(p => p.id)));
+  };
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  const handleApply = () => {
+    if (!canApply) return;
+    if (!masterSnapshotRef.current) {
+      masterSnapshotRef.current = JSON.parse(JSON.stringify(allSections));
+    }
+    const changes: Record<string, string> = {};
+    for (const p of propDefs) {
+      if (!checked.has(p.id)) continue;
+      for (const key of p.keys) {
+        const v = (el.styles as any)[key];
+        if (v !== undefined && v !== '') changes[key] = v;
+      }
+    }
+    const targetSections = scope === 'section' ? [section] : allSections;
+    const patches: Array<{ sectionId: string; elId: string; changes: Record<string, string> }> = [];
+    for (const sec of targetSections) {
+      for (const target of findElsByType(sec.elements, el.type)) {
+        patches.push({ sectionId: sec.id, elId: target.id, changes });
+      }
+    }
+    onBatchPatch(patches);
+    onBulkApplyDone();
+    onShowSuccessToast(patches.length);
+    onClose();
+  };
+
+  const handleReset = () => {
+    if (!masterSnapshotRef.current) return;
+    onBulkReset(masterSnapshotRef.current);
+    masterSnapshotRef.current = null;
+    onShowRevertToast();
+    onClose();
+  };
+
+  const sectionColor = '#2563EB';
+
+  return createPortal(
+    (() => {
+      const POPOVER_WIDTH = 320;
+      const POPOVER_EST_HEIGHT = 500;
+      const openAbove = anchorRect.bottom + POPOVER_EST_HEIGHT > window.innerHeight;
+      const right = window.innerWidth - anchorRect.right;
+      const caretStyle: React.CSSProperties = {
+        position: 'absolute',
+        width: 12, height: 12,
+        background: 'white',
+        borderTop: '1px solid #E5E7EB',
+        borderLeft: '1px solid #E5E7EB',
+        transform: openAbove ? 'rotate(225deg)' : 'rotate(45deg)',
+        right: 12,
+        ...(openAbove ? { bottom: -7 } : { top: -7 }),
+      };
+      const posStyle: React.CSSProperties = openAbove
+        ? { bottom: window.innerHeight - anchorRect.top + 8, maxHeight: anchorRect.top - 24 }
+        : { top: anchorRect.bottom + 8, maxHeight: window.innerHeight - anchorRect.bottom - 24 };
+      return (
+        <div
+          ref={popoverRef}
+          style={{
+            position: 'fixed', right,
+            width: POPOVER_WIDTH,
+            display: 'flex', flexDirection: 'column',
+            overflow: 'hidden',
+            background: 'white', border: '1px solid #E5E7EB',
+            borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.16)',
+            padding: 20, zIndex: 99999,
+            ...posStyle,
+          }}
+        >
+          {/* Fixed header — never scrolls */}
+          <div style={{ flexShrink: 0 }}>
+            <div style={caretStyle} />
+            {/* Header */}
+            <div style={{ fontSize: 14, color: '#111827', fontWeight: 600, marginBottom: 16 }}>
+              Apply <span style={{ color: sectionColor }}>{sectionTitle}</span> style to:
+            </div>
+
+            {/* Scope */}
+            {(['section', 'all'] as const).map(s => (
+              <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '5px 0', marginBottom: s === 'section' ? 5 : 0 }}>
+                <div
+                  onClick={() => setScope(s)}
+                  style={{ width: 16, height: 16, borderRadius: '50%', border: scope === s ? '5px solid #2563EB' : '1.5px solid #9CA3AF', cursor: 'pointer', flexShrink: 0, background: 'white', boxSizing: 'border-box' }}
+                />
+                <span onClick={() => setScope(s)} style={{ fontSize: 14, color: '#111827', userSelect: 'none' }}>
+                  {s === 'section' ? 'This section' : 'Entire newsletter'}
+                </span>
+              </label>
+            ))}
+
+            <div style={{ height: 1, background: '#F3F4F6', margin: '16px 0' }} />
+
+            {/* Properties label */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <span style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>Which properties?</span>
+              <button type="button" onClick={toggleAll}
+                style={{ background: 'none', border: 'none', fontSize: 12, color: '#2563EB', cursor: 'pointer', padding: 0 }}>
+                {allChecked ? 'Deselect all' : 'Select all'}
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable checkbox list only */}
+          <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
+            {propDefs.map(p => (
+              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '5px 0' }}>
+                <input
+                  type="checkbox"
+                  checked={checked.has(p.id)}
+                  onChange={() => setChecked(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
+                  style={{ width: 15, height: 15, accentColor: '#2563EB', cursor: 'pointer', borderRadius: 4, flexShrink: 0 }}
+                />
+                <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>{p.label}</span>
+                <span style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 'auto', flexShrink: 0, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  ({p.displayValue})
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {/* Fixed footer — never scrolls */}
+          <div style={{ flexShrink: 0, marginTop: 0, paddingTop: 12, borderTop: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', position: 'relative', zIndex: 1 }}>
+            <div>
+              {bulkApplyDone && masterSnapshotRef.current && (
+                <button type="button" onClick={handleReset}
+                  style={{ background: 'none', border: 'none', fontSize: 13, color: '#DC2626', fontWeight: 500, cursor: 'pointer', padding: 0, textDecoration: 'none' }}
+                  onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                  onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}>
+                  Reset all changes
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleApply}
+              disabled={!canApply}
+              style={{
+                background: canApply ? '#2563EB' : '#E5E7EB',
+                color: canApply ? 'white' : '#9CA3AF',
+                border: 'none', borderRadius: 8, padding: '8px 20px',
+                fontSize: 13, fontWeight: 600,
+                cursor: canApply ? 'pointer' : 'not-allowed',
+              }}>
+              Apply
+            </button>
+          </div>
+        </div>
+      );
+    })(),
+    document.body
+  );
+}
+
+// ─── Collapse component ───────────────────────────────────────
+
+function Collapse({ title, icon, children, defaultOpen = true, applyPropKeys, onOpen, onBulkApply }: {
   title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean;
   /** If provided, renders a chain icon in the header. When any of these keys is
    *  dirty (user changed them since selecting this section/element), clicking
@@ -151,42 +486,48 @@ function Collapse({ title, icon, children, defaultOpen = true, applyPropKeys, on
   applyPropKeys?: string[];
   /** Called with the root element whenever the section transitions closed → open. */
   onOpen?: (el: HTMLDivElement | null) => void;
+  /** When provided, renders a bulk-apply icon button before the chevron. */
+  onBulkApply?: (rect: DOMRect) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setOpen(defaultOpen); }, [defaultOpen]);
-  const ctx = React.useContext(ApplyCtx);
-  const enabledApply = !!(ctx && ctx.ready && applyPropKeys && applyPropKeys.some(k => ctx.isDirty(k)));
-  const handleApply = (e: React.MouseEvent | React.KeyboardEvent) => {
-    e.stopPropagation(); // don't toggle collapse
-    if (!ctx || !applyPropKeys || !enabledApply) return;
-    const n = ctx.applyNow(applyPropKeys, 'allCanvas');
-    if (n > 0) {
-      const what = ctx.mode === 'section' ? 'section' : 'element';
-      toast.success(`Applied to ${n} similar ${what}${n === 1 ? '' : 's'} across the canvas`);
-    } else {
-      toast(`No similar ${ctx.mode === 'section' ? 'sections' : 'elements'} found`);
-    }
-  };
+
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   return (
     <div ref={rootRef} className="border-b border-[#edf0f4]">
       <div className="w-full flex items-center gap-1.5 px-3 py-2.5 text-[12px] text-[#4a5568] hover:bg-[#f8f9fb] transition-colors" style={{ fontWeight: 600 }}>
         <button type="button" onClick={() => { if (!open) onOpen?.(rootRef.current); setOpen(!open); }} className="flex items-center gap-1.5 flex-1 min-w-0 text-left text-[12px]" style={{ fontWeight: 600 }}>
           <span className="text-[#718096]">{icon}</span>{title}
         </button>
-        {applyPropKeys && (
+        {onBulkApply && (
           <button
             type="button"
-            disabled={!enabledApply}
-            onClick={handleApply}
-            title={enabledApply ? 'Apply changes to all similar across the entire canvas' : 'Change a value first, then click to apply everywhere'}
-            className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
-              enabledApply
-                ? 'text-[#004BE2] hover:bg-[#e5edfc] cursor-pointer'
-                : 'text-[#cbd5e0] cursor-not-allowed'
-            }`}
+            onClick={e => { e.stopPropagation(); onBulkApply((e.currentTarget as HTMLButtonElement).getBoundingClientRect()); }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.color = '#2563EB';
+              (e.currentTarget as HTMLElement).style.backgroundColor = '#EFF6FF';
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+              tooltipTimerRef.current = setTimeout(() => {
+                setTooltipPos({ x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+              }, 500);
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.color = '#9CA3AF';
+              (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+              if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+              setTooltipPos(null);
+            }}
+            style={{ background: 'transparent', border: 'none', padding: 3, borderRadius: 4, cursor: 'pointer', color: '#9CA3AF', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+            title=""
           >
-            <Link2 size={11} />
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="1" y="4" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M5 4V3a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2h-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
           </button>
         )}
         <button type="button" onClick={() => { if (!open) onOpen?.(rootRef.current); setOpen(!open); }} className="text-[#a0aec0] flex items-center">
@@ -194,6 +535,12 @@ function Collapse({ title, icon, children, defaultOpen = true, applyPropKeys, on
         </button>
       </div>
       {open && <div className="px-3 pb-3 space-y-2.5">{children}</div>}
+      {tooltipPos && createPortal(
+        <div style={{ position: 'fixed', top: tooltipPos.y, left: tooltipPos.x, transform: 'translateX(-50%)', zIndex: 999999, background: 'rgba(0,0,0,0.75)', color: 'white', fontSize: 11, borderRadius: 4, padding: '4px 8px', pointerEvents: 'none', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
+          Apply to section or newsletter
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -525,14 +872,18 @@ function rgbToHex(rgb: string | null | undefined): string | null {
 }
 
 // ─── Element Border Controls (reusable) ───────────────────────
-function ElementBorderControls({ info, onUpdate, onCommit }: {
+function ElementBorderControls({ info, onUpdate, onCommit, onBulkApply }: {
   info: ElementInfo; onUpdate: (c: Partial<Record<string, string>>) => void; onCommit: (c: Partial<Record<string, string>>) => void;
+  onBulkApply?: (rect: DOMRect) => void;
 }) {
   const px = (s: string) => parseInt(s) || 0;
   const borderEnabled = px(info.borderWidth) > 0;
   const [open, setOpen] = useState(true);
   const enable = () => onCommit({ borderWidth: '1px', borderStyle: info.borderStyle || 'solid', borderColor: info.borderColor || '#e2e8f0', borderImageSource: '' });
   const disable = () => onCommit({ borderWidth: '0px', borderColor: '', borderStyle: '', borderImageSource: '' });
+
+  const [borderTooltipPos, setBorderTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const borderTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-open when border is enabled via the toggle
   useEffect(() => { if (borderEnabled) setOpen(true); }, [borderEnabled]);
@@ -543,6 +894,33 @@ function ElementBorderControls({ info, onUpdate, onCommit }: {
         <button type="button" onClick={() => setOpen(v => !v)} className="flex items-center gap-1.5 flex-1 min-w-0 text-left text-[12px]" style={{ fontWeight: 600 }}>
           <span className="text-[#718096]"><Square size={13} /></span>Border
         </button>
+        {onBulkApply && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onBulkApply((e.currentTarget as HTMLButtonElement).getBoundingClientRect()); }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.color = '#2563EB';
+              (e.currentTarget as HTMLElement).style.backgroundColor = '#EFF6FF';
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              if (borderTooltipTimerRef.current) clearTimeout(borderTooltipTimerRef.current);
+              borderTooltipTimerRef.current = setTimeout(() => {
+                setBorderTooltipPos({ x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+              }, 500);
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.color = '#9CA3AF';
+              (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+              if (borderTooltipTimerRef.current) clearTimeout(borderTooltipTimerRef.current);
+              setBorderTooltipPos(null);
+            }}
+            style={{ background: 'transparent', border: 'none', padding: 3, borderRadius: 4, cursor: 'pointer', color: '#9CA3AF', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="1" y="4" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M5 4V3a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2h-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        )}
         {/* Inline CSS toggle — thumb always stays inside the pill */}
         <div
           onClick={e => { e.stopPropagation(); borderEnabled ? disable() : enable(); }}
@@ -555,6 +933,12 @@ function ElementBorderControls({ info, onUpdate, onCommit }: {
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
       </div>
+      {borderTooltipPos && createPortal(
+        <div style={{ position: 'fixed', top: borderTooltipPos.y, left: borderTooltipPos.x, transform: 'translateX(-50%)', zIndex: 999999, background: 'rgba(0,0,0,0.75)', color: 'white', fontSize: 11, borderRadius: 4, padding: '4px 8px', pointerEvents: 'none', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
+          Apply to section or newsletter
+        </div>,
+        document.body
+      )}
       {open && (
         <div className={`px-3 pb-3 space-y-2.5 transition-opacity ${!borderEnabled ? 'opacity-40 pointer-events-none select-none' : ''}`}>
           <NumField label="Thickness" value={px(info.borderWidth)}
@@ -757,11 +1141,12 @@ export function PropertiesPanel({
   onUpdateStyles, onUpdateStylesLive, onUpdateHtml, onUpdateName,
   onApplyTheme, onSetThemeColors, onSaveTheme, onDeleteCustomPreset, onSaveTemplate,
   onUpdateElement, onUpdateElementCommit, onDeleteElement, onDuplicateElement,
-  onReplaceElement, onPatchElement, getSelectedElement,
+  onReplaceElement, onPatchElement, onBatchPatchElements, canvasLength, getSelectedElement,
   onApplyStylesGlobally, onApplyElementGlobally, selectedElementId,
   activeTab, onSetTab,
   library, activeBuiltinTemplate, activeCustomTemplateId, customTemplates,
   onSelectBuiltinTemplate, onSelectCustomTemplate, onDeleteCustomTemplate,
+  allSections, onBulkReset,
 }: Props) {
   const [themeName, setThemeName] = useState('');
   const [templateName, setTemplateName] = useState('');
@@ -788,6 +1173,12 @@ export function PropertiesPanel({
     if (elementInfo?.color === '#96BCFF') setLinkColorMode('dark');
     else setLinkColorMode('light');
   }, [selectedElementId]);
+
+  // Adapt Text Colors banner
+  const [showAdaptBanner, setShowAdaptBanner] = useState(false);
+  const [adaptBannerDark, setAdaptBannerDark] = useState(false);
+  const pendingBgColorRef = useRef<string>('');
+  useEffect(() => { setShowAdaptBanner(false); }, [selectedElementId]);
   // Inline dropdown visibility for the Duplicate button — shown next to the
   // button itself in the Actions section. Closed when the user picks a
   // direction or clicks outside.
@@ -830,6 +1221,30 @@ export function PropertiesPanel({
     setElementDirty(new Set());
     elementDirtyValsRef.current = {};
   }, [selectedElementId]);
+
+  // ── Bulk apply modal state ────────────────────────────────────
+  const [bulkModal, setBulkModal] = useState<{ sectionTitle: string; anchorRect: DOMRect } | null>(null);
+  const [bulkApplyDone, setBulkApplyDone] = useState(false);
+  const masterSnapshotRef = useRef<CanvasSection[] | null>(null);
+
+  // ── Bulk apply toast ─────────────────────────────────────────
+  const [bulkToast, setBulkToast] = useState<{ message: string } | null>(null);
+  const [bulkToastExiting, setBulkToastExiting] = useState(false);
+  const bulkToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showBulkToast = useCallback((message: string) => {
+    if (bulkToastTimerRef.current) clearTimeout(bulkToastTimerRef.current);
+    setBulkToast({ message });
+    setBulkToastExiting(false);
+    bulkToastTimerRef.current = setTimeout(() => {
+      setBulkToastExiting(true);
+      setTimeout(() => setBulkToast(null), 300);
+    }, 3000);
+  }, []);
+
+  const openBulkModal = useCallback((sectionTitle: string, anchorRect: DOMRect) => {
+    setBulkModal({ sectionTitle, anchorRect });
+  }, []);
 
   // Wrapped update callbacks — track which keys were touched, then delegate.
   const sectionId = section?.id || '';
@@ -882,6 +1297,39 @@ export function PropertiesPanel({
       Object.assign(elementDirtyValsRef.current, changes);
     }
     onUpdateElementCommit(changes);
+  };
+
+  // Detect background luminance and show the adapt text colors banner
+  const detectAndShowBanner = (hex: string | null, isImage = false) => {
+    if (isImage) { setAdaptBannerDark(true); setShowAdaptBanner(true); return; }
+    if (!hex) { setShowAdaptBanner(false); return; }
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    const toLinear = (c: number) => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    const lum = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    setAdaptBannerDark(lum <= 0.5);
+    setShowAdaptBanner(true);
+  };
+
+  // Apply light/dark text colors to all text elements in the current section
+  const adaptTextColors = () => {
+    if (!section) return;
+    const primaryColor = adaptBannerDark ? '#FFFFFF' : '#1F2937';
+    const secondaryColor = adaptBannerDark ? '#E2E8F0' : '#6B7280';
+    const patches: Array<{sectionId: string; elId: string; changes: Record<string, string>}> = [];
+    const walk = (elements: SectionElement[]) => {
+      for (const el of elements) {
+        if (el.type === 'text' || el.type === 'link') {
+          const isPrimary = ['h1', 'h2', 'h3'].includes(el.tag ?? '');
+          patches.push({ sectionId: section.id, elId: el.id, changes: { color: isPrimary ? primaryColor : secondaryColor } });
+        }
+        if (el.children?.length) walk(el.children);
+      }
+    };
+    walk(section.elements);
+    if (patches.length) onBatchPatchElements(patches);
+    setShowAdaptBanner(false);
   };
 
   // Context values for the two modes
@@ -1027,6 +1475,7 @@ export function PropertiesPanel({
   };
 
   return (
+    <>
     <div className="flex flex-col h-full bg-white overflow-x-hidden">
       <div className="px-4 py-2.5 border-b border-[#dce1e8] shrink-0">
         <span className="text-[12px] text-[#111827]" style={{ fontWeight: 600 }}>Properties</span>
@@ -1037,6 +1486,45 @@ export function PropertiesPanel({
         {elementInfo && section && (
           <ApplyCtx.Provider value={elementApplyCtx}>
           <>
+            {/* Adapt Text Colors banner — shown after background changes on container elements */}
+            {showAdaptBanner && elementInfo.type === 'container' && (
+              <div style={{
+                backgroundColor: '#EFF6FF',
+                border: '1px solid #BFDBFE',
+                borderRadius: 8,
+                padding: '12px 14px',
+                margin: '12px 12px 8px 12px',
+                width: 'calc(100% - 24px)',
+                animation: 'adaptBannerIn 0.2s ease both',
+              }}>
+                <style>{`@keyframes adaptBannerIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                    </svg>
+                    <span style={{ fontSize: 12, color: '#1E40AF', fontWeight: 500 }}>
+                      {adaptBannerDark ? 'Dark background detected.' : 'Light background detected.'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowAdaptBanner(false)}
+                    style={{ background: 'none', border: 'none', padding: '0 0 0 8px', cursor: 'pointer', color: '#93C5FD', fontSize: 14, lineHeight: 1 }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#1E40AF')}
+                    onMouseLeave={e => (e.currentTarget.style.color = '#93C5FD')}>
+                    ×
+                  </button>
+                </div>
+                <button
+                  onClick={adaptTextColors}
+                  style={{ marginTop: 10, width: '100%', height: 32, background: '#DBEAFE', color: '#1D4ED8', fontSize: 12, fontWeight: 500, border: '1px solid #BFDBFE', borderRadius: 6, cursor: 'pointer', transition: 'background 0.15s ease, border-color 0.15s ease' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#BFDBFE'; e.currentTarget.style.borderColor = '#93C5FD'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#DBEAFE'; e.currentTarget.style.borderColor = '#BFDBFE'; }}>
+                  Adapt text colors for this section
+                </button>
+              </div>
+            )}
+
             {/* 1.5 Add Link — available for every element type */}
             <Collapse title="Add Link" icon={<LinkIcon size={13} />} defaultOpen={!!elementInfo.href} applyPropKeys={['href']}>
               <FieldWithApply propKeys={['href']}>
@@ -1120,7 +1608,7 @@ export function PropertiesPanel({
 
             {/* 2. Typography */}
             {(elementInfo.type === 'text' || elementInfo.type === 'link' || elementInfo.type === 'button' || elementInfo.isTextContainer) && (
-              <Collapse title="Typography" icon={<Type size={13} />} applyPropKeys={['fontFamily', 'fontSize', 'fontWeight', 'color', 'fontStyle', 'textDecoration', 'textAlign', 'lineHeight', 'letterSpacing', 'textTransform']}>
+              <Collapse title="Typography" icon={<Type size={13} />} applyPropKeys={['fontFamily', 'fontSize', 'fontWeight', 'color', 'fontStyle', 'textDecoration', 'textAlign', 'lineHeight', 'letterSpacing', 'textTransform']} onBulkApply={(rect) => openBulkModal('Typography', rect)}>
                 <FieldWithApply propKeys={['fontFamily']}>
                 <SelectField label="Font" value={elementInfo.fontFamily.split(',')[0]?.replace(/'/g, '').trim() || 'Arial'}
                   options={FONT_FAMILIES.map(f => ({ label: f, value: f }))}
@@ -1195,7 +1683,7 @@ export function PropertiesPanel({
             {/* 3. Button Controls — Background Color and Rounded Corners only */}
             {elementInfo.type === 'button' && (
               <>
-                <Collapse title="Background Color" icon={<Palette size={13} />} applyPropKeys={['backgroundColor']}>
+                <Collapse title="Background Color" icon={<Palette size={13} />} applyPropKeys={['backgroundColor']} onBulkApply={(rect) => openBulkModal('Background Color', rect)}>
                   <FieldWithApply propKeys={['backgroundColor']}>
                   <ColorField label="Color" value={elementInfo.backgroundColor || detectedBtnBgColor}
                     onChange={v => wrappedUpdateElement({ backgroundColor: v })} onCommit={() => wrappedUpdateElementCommit({})} />
@@ -1205,7 +1693,7 @@ export function PropertiesPanel({
                       className="text-[11px] text-red-500 hover:text-red-700" style={{ fontWeight: 500 }}>Clear</button>
                   )}
                 </Collapse>
-                <Collapse title="Rounded Corners" icon={<Square size={13} />} applyPropKeys={['borderRadius']}>
+                <Collapse title="Rounded Corners" icon={<Square size={13} />} applyPropKeys={['borderRadius']} onBulkApply={(rect) => openBulkModal('Rounded Corners', rect)}>
                   <FieldWithApply propKeys={['borderRadius']}>
                   <NumField label="Radius" value={px(elementInfo.borderRadius)}
                     onChange={v => wrappedUpdateElement({ borderRadius: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} min={0} />
@@ -1216,7 +1704,7 @@ export function PropertiesPanel({
 
             {/* Icon element — emoji/symbol that can be replaced with an uploaded image */}
             {elementInfo.isEmojiIcon && (
-              <Collapse title="Icon" icon={<ImageIcon size={13} />}>
+              <Collapse title="Icon" icon={<ImageIcon size={13} />} onBulkApply={(rect) => openBulkModal('Icon', rect)}>
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
                     <div className="w-14 h-14 rounded-lg border border-[#dce1e8] bg-[#f7f8fa] flex items-center justify-center text-2xl select-none">
@@ -1322,7 +1810,7 @@ export function PropertiesPanel({
                 ['icon', 'arrow', 'bullet', 'diamond', 'logo', 'social'].some(k => altLower.includes(k) || srcLower.includes(k));
 
               if (isIcon) return (
-                <Collapse title="Icon" icon={<ImageIcon size={13} />}>
+                <Collapse title="Icon" icon={<ImageIcon size={13} />} onBulkApply={(rect) => openBulkModal('Icon', rect)}>
                   {elementInfo.src && elementInfo.src !== '#' ? (
                     <div className="space-y-1.5">
                       <div className="w-14 h-14 rounded border border-[#dce1e8] overflow-hidden bg-[#f7f8fa] flex items-center justify-center">
@@ -1390,7 +1878,7 @@ export function PropertiesPanel({
               );
 
               return (
-              <Collapse title="Image" icon={<ImageIcon size={13} />}>
+              <Collapse title="Image" icon={<ImageIcon size={13} />} onBulkApply={(rect) => openBulkModal('Image', rect)}>
                 {elementInfo.src && elementInfo.src !== '#' ? (
                   <div className="space-y-1.5">
                     <div className="w-full h-20 rounded border border-[#dce1e8] overflow-hidden bg-[#f7f8fa]">
@@ -1476,11 +1964,13 @@ export function PropertiesPanel({
                 ? GRADIENT_PRESETS_PASTEL.findIndex(p => p.from.toLowerCase() === parsedGrad.from.toLowerCase() && p.to.toLowerCase() === parsedGrad.to.toLowerCase())
                 : -1;
               const activeDirection = parsedGrad?.direction || 'to bottom';
-              const applyGradient = (from: string, to: string, direction: string) =>
+              const applyGradient = (from: string, to: string, direction: string) => {
                 wrappedUpdateElementCommit({ backgroundColor: from, background: `linear-gradient(${direction}, ${from}, ${to})`, backgroundImage: '' });
+                detectAndShowBanner(colorToHex(from));
+              };
 
               return (
-                <Collapse title="Background" icon={<Palette size={13} />} applyPropKeys={['backgroundColor', 'background', 'backgroundImage', 'backgroundSize', 'borderRadius']}>
+                <Collapse title="Background" icon={<Palette size={13} />} applyPropKeys={['backgroundColor', 'background', 'backgroundImage', 'backgroundSize', 'borderRadius']} onBulkApply={(rect) => openBulkModal('Background', rect)}>
                   <div className="flex items-center bg-[#f0f2f5] rounded-md p-0.5 gap-0.5 mb-2">
                     {[
                       { id: 'color' as const, label: 'Color' },
@@ -1516,7 +2006,8 @@ export function PropertiesPanel({
 
                   {bgMode === 'color' && (
                     <ColorField label="Color" value={elementInfo.backgroundColor || detectedBgColor}
-                      onChange={v => wrappedUpdateElement({ backgroundColor: v, background: '' })} onCommit={() => wrappedUpdateElementCommit({})} />
+                      onChange={v => { pendingBgColorRef.current = v; wrappedUpdateElement({ backgroundColor: v, background: '' }); }}
+                      onCommit={() => { wrappedUpdateElementCommit({}); detectAndShowBanner(colorToHex(pendingBgColorRef.current)); }} />
                   )}
 
                   {bgMode === 'gradient' && (
@@ -1625,11 +2116,11 @@ export function PropertiesPanel({
                           <img src={previewUrl} className="w-full h-full object-cover" alt="BG" />
                         </div>
                         <div className="flex gap-1.5">
-                          <button onClick={() => handleFileUpload(url => wrappedUpdateElementCommit({ backgroundImage: `url('${url}')` }))}
+                          <button onClick={() => handleFileUpload(url => { wrappedUpdateElementCommit({ backgroundImage: `url('${url}')` }); detectAndShowBanner(null, true); })}
                             className="flex items-center gap-1 px-2.5 py-1 bg-[#f0f2f5] text-[#4a5568] rounded text-[11px] hover:bg-[#e2e7ee]" style={{ fontWeight: 500 }}>
                             <ImagePlus size={10} /> Replace
                           </button>
-                          <button onClick={() => wrappedUpdateElementCommit({ backgroundImage: '' })}
+                          <button onClick={() => { wrappedUpdateElementCommit({ backgroundImage: '' }); setShowAdaptBanner(false); }}
                             className="flex items-center gap-1 px-2.5 py-1 bg-red-50 text-red-500 rounded text-[11px] hover:bg-red-100" style={{ fontWeight: 500 }}>
                             <Trash2 size={10} /> Remove
                           </button>
@@ -1639,7 +2130,7 @@ export function PropertiesPanel({
                           onChange={v => wrappedUpdateElementCommit({ backgroundSize: v })} />
                       </div>
                     ) : (
-                      <button onClick={() => handleFileUpload(url => wrappedUpdateElementCommit({ backgroundImage: `url('${url}')`, backgroundSize: 'cover' }))}
+                      <button onClick={() => handleFileUpload(url => { wrappedUpdateElementCommit({ backgroundImage: `url('${url}')`, backgroundSize: 'cover' }); detectAndShowBanner(null, true); })}
                         className="w-full h-12 border-2 border-dashed border-[#dce1e8] rounded-md flex items-center justify-center text-[#a0aec0] hover:border-[#004BE2] hover:text-[#004BE2] transition-colors cursor-pointer">
                         <Plus size={14} />
                       </button>
@@ -1656,7 +2147,7 @@ export function PropertiesPanel({
 
             {/* 6. Appearance (opacity) — hidden for button */}
             {elementInfo.type !== 'button' && (
-            <Collapse title="Appearance" icon={<Palette size={13} />} applyPropKeys={['opacity']}>
+            <Collapse title="Appearance" icon={<Palette size={13} />} applyPropKeys={['opacity']} onBulkApply={(rect) => openBulkModal('Appearance', rect)}>
               <div className="flex items-center gap-2">
                 <label className="text-[11px] text-[#718096] w-20 shrink-0 select-none">Opacity</label>
                 <input type="range" min={0} max={100} step={1}
@@ -1677,7 +2168,7 @@ export function PropertiesPanel({
             )}
 
             {/* 8. Padding */}
-            <Collapse title="Padding" icon={<Sliders size={13} />} applyPropKeys={['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']}>
+            <Collapse title="Padding" icon={<Sliders size={13} />} applyPropKeys={['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']} onBulkApply={(rect) => openBulkModal('Padding', rect)}>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                 <CompactNumField label="Top" value={px(elementInfo.paddingTop)}
                   onChange={v => wrappedUpdateElement({ paddingTop: `${v}px` })} onCommit={() => wrappedUpdateElementCommit({})} />
@@ -1704,7 +2195,7 @@ export function PropertiesPanel({
             )}
 
             {/* 10. Border / Stroke (no enable checkbox — always expanded) */}
-            <ElementBorderControls info={elementInfo} onUpdate={wrappedUpdateElement} onCommit={wrappedUpdateElementCommit} />
+            <ElementBorderControls info={elementInfo} onUpdate={wrappedUpdateElement} onCommit={wrappedUpdateElementCommit} onBulkApply={(rect) => openBulkModal('Border', rect)} />
 
           </>
           </ApplyCtx.Provider>
@@ -1720,5 +2211,46 @@ export function PropertiesPanel({
 
       </div>
     </div>
+
+    {/* Bulk Apply Modal */}
+    {bulkModal && elementInfo && section && (() => {
+      const el = getSelectedElement();
+      if (!el) return null;
+      return (
+        <BulkApplyModal
+          sectionTitle={bulkModal.sectionTitle}
+          anchorRect={bulkModal.anchorRect}
+          el={el}
+          elementInfo={elementInfo}
+          section={section}
+          allSections={allSections}
+          masterSnapshotRef={masterSnapshotRef}
+          bulkApplyDone={bulkApplyDone}
+          onBulkApplyDone={() => setBulkApplyDone(true)}
+          onBatchPatch={onBatchPatchElements}
+          onBulkReset={onBulkReset}
+          onClose={() => setBulkModal(null)}
+          onShowSuccessToast={(count) => showBulkToast(`Applied to ${count} element${count !== 1 ? 's' : ''}`)}
+          onShowRevertToast={() => showBulkToast('All changes reverted')}
+        />
+      );
+    })()}
+
+    {/* Bulk Apply Toast */}
+    {bulkToast && createPortal(
+      <div style={{
+        position: 'fixed', bottom: 24, left: '50%', transform: `translateX(-50%) translateY(${bulkToastExiting ? '20px' : '0'})`,
+        zIndex: 999999, background: '#1F2937', color: 'white', borderRadius: 8,
+        padding: '10px 20px', fontSize: 13, fontWeight: 500, fontFamily: 'inherit',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.2)', whiteSpace: 'nowrap',
+        opacity: bulkToastExiting ? 0 : 1,
+        transition: 'opacity 0.3s ease, transform 0.3s ease',
+        pointerEvents: 'none',
+      }}>
+        {bulkToast.message}
+      </div>,
+      document.body
+    )}
+    </>
   );
 }

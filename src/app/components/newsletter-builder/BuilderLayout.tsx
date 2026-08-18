@@ -352,7 +352,7 @@ export function BuilderLayout() {
               store.setSelectedId(id);
               if (!id) store.setSelectedElementId(null);
             }}
-            onSelectEl={store.setSelectedElementId}
+            onSelectEl={store.selectElement}
             onAdd={(lib, idx) => {
               const id = store.addSection(lib, idx);
               toast.success(`Added "${lib.name}"`);
@@ -425,6 +425,10 @@ export function BuilderLayout() {
               onDuplicateElement={direction => { store.duplicateSelectedElement(direction); toast.success('Element duplicated'); }}
               onReplaceElement={store.replaceElement}
               onPatchElement={store.patchElement}
+              onBatchPatchElements={store.batchPatchElements}
+              allSections={store.canvas}
+              onBulkReset={(snapshot: CanvasSection[]) => { store.loadCanvasSections(snapshot); }}
+              canvasLength={store.canvas.length}
               getSelectedElement={store.getSelectedElement}
               onApplyStylesGlobally={store.applyStylesGlobally}
               onApplyElementGlobally={store.applyElementGlobally}

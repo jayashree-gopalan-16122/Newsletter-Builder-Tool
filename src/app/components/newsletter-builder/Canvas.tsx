@@ -377,7 +377,8 @@ function RenderElement({ el, selectedElementId, flashedElementIds, onSelectEl, o
           flashedElementIds={flashedElementIds}
           onSelectEl={onSelectEl}
           onDoubleClickEl={onDoubleClickEl}
-          onImageHover={onImageHover} />
+          onImageHover={onImageHover}
+          />
       ));
     }
     // Inline-formatted content (bold, italic, color spans) stored as HTML string
@@ -424,7 +425,7 @@ function RenderElement({ el, selectedElementId, flashedElementIds, onSelectEl, o
   }
 
   // Generic element
-  const Tag = el.tag as keyof JSX.IntrinsicElements;
+  const Tag = el.tag as React.ElementType;
 
   return (
     <Tag
@@ -874,7 +875,8 @@ export function Canvas({
 
   return (
     <div className="flex-1 overflow-auto bg-[#e8ecf2] flex justify-center relative"
-      onClick={() => { onSelect(null); onSelectEl(null); }}>
+      onClick={() => { onSelect(null); onSelectEl(null); }}
+      onScroll={() => { if (hintTimerRef.current) clearTimeout(hintTimerRef.current); setHintPos(null); }}>
       <div className="py-6 px-4" ref={canvasRef}>
         {previewMode !== 'desktop' && (
           <div className="mb-3 text-center">
@@ -1053,24 +1055,29 @@ export function Canvas({
                     <div
                       className="section-content"
                       style={{ ...innerContentStyle(section.styles), animation: 'nbl-section-in 150ms ease' }}
-                      onMouseOver={isFeatSec ? (e: React.MouseEvent) => {
-                        const groupEl = (e.target as HTMLElement).closest('[data-feature-group]') as HTMLElement | null;
-                        if (groupEl && groupEl.getAttribute('data-feature-hidden') !== 'true') {
-                          cancelFeatureHoverHide();
-                          const sectionWrap = (e.currentTarget as HTMLElement).closest('[data-section-id]') as HTMLElement;
-                          const gRect = groupEl.getBoundingClientRect();
-                          const sRect = sectionWrap.getBoundingClientRect();
-                          setFeatureGroupHover({
-                            sectionId: section.id,
-                            groupN: Number(groupEl.getAttribute('data-feature-group')),
-                            top: gRect.top - sRect.top + 4,
-                            right: sRect.right - gRect.right + 4,
-                          });
-                        } else if (!groupEl) {
-                          scheduleFeatureGroupHide();
+                      onMouseOver={(e: React.MouseEvent) => {
+                        // Feature group hover (only for feature sections)
+                        if (isFeatSec) {
+                          const groupEl = (e.target as HTMLElement).closest('[data-feature-group]') as HTMLElement | null;
+                          if (groupEl && groupEl.getAttribute('data-feature-hidden') !== 'true') {
+                            cancelFeatureHoverHide();
+                            const sectionWrap = (e.currentTarget as HTMLElement).closest('[data-section-id]') as HTMLElement;
+                            const gRect = groupEl.getBoundingClientRect();
+                            const sRect = sectionWrap.getBoundingClientRect();
+                            setFeatureGroupHover({
+                              sectionId: section.id,
+                              groupN: Number(groupEl.getAttribute('data-feature-group')),
+                              top: gRect.top - sRect.top + 4,
+                              right: sRect.right - gRect.right + 4,
+                            });
+                          } else if (!groupEl) {
+                            scheduleFeatureGroupHide();
+                          }
                         }
-                      } : undefined}
-                      onMouseLeave={isFeatSec ? scheduleFeatureGroupHide : undefined}
+                      }}
+                      onMouseLeave={() => {
+                        if (isFeatSec) scheduleFeatureGroupHide();
+                      }}
                     >
                       {section.elements.map(el => (
                         <RenderElement
@@ -1348,6 +1355,7 @@ export function Canvas({
           </>
         );
       })()}
+
     </div>
   );
 }
