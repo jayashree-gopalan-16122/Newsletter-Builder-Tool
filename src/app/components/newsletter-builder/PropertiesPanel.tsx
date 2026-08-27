@@ -512,7 +512,7 @@ function Collapse({ title, icon, children, defaultOpen = true, applyPropKeys, on
               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
               if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
               tooltipTimerRef.current = setTimeout(() => {
-                setTooltipPos({ x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+                setTooltipPos({ x: rect.right, y: rect.bottom + 6 });
               }, 500);
             }}
             onMouseLeave={e => {
@@ -536,7 +536,7 @@ function Collapse({ title, icon, children, defaultOpen = true, applyPropKeys, on
       </div>
       {open && <div className="px-3 pb-3 space-y-2.5">{children}</div>}
       {tooltipPos && createPortal(
-        <div style={{ position: 'fixed', top: tooltipPos.y, left: tooltipPos.x, transform: 'translateX(-50%)', zIndex: 999999, background: 'rgba(0,0,0,0.75)', color: 'white', fontSize: 11, borderRadius: 4, padding: '4px 8px', pointerEvents: 'none', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
+        <div style={{ position: 'fixed', top: tooltipPos.y, right: window.innerWidth - tooltipPos.x, zIndex: 999999, background: 'rgba(0,0,0,0.75)', color: 'white', fontSize: 11, borderRadius: 4, padding: '4px 8px', pointerEvents: 'none', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
           Apply to section or newsletter
         </div>,
         document.body
@@ -904,7 +904,7 @@ function ElementBorderControls({ info, onUpdate, onCommit, onBulkApply }: {
               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
               if (borderTooltipTimerRef.current) clearTimeout(borderTooltipTimerRef.current);
               borderTooltipTimerRef.current = setTimeout(() => {
-                setBorderTooltipPos({ x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+                setBorderTooltipPos({ x: rect.right, y: rect.bottom + 6 });
               }, 500);
             }}
             onMouseLeave={e => {
@@ -934,7 +934,7 @@ function ElementBorderControls({ info, onUpdate, onCommit, onBulkApply }: {
         </button>
       </div>
       {borderTooltipPos && createPortal(
-        <div style={{ position: 'fixed', top: borderTooltipPos.y, left: borderTooltipPos.x, transform: 'translateX(-50%)', zIndex: 999999, background: 'rgba(0,0,0,0.75)', color: 'white', fontSize: 11, borderRadius: 4, padding: '4px 8px', pointerEvents: 'none', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
+        <div style={{ position: 'fixed', top: borderTooltipPos.y, right: window.innerWidth - borderTooltipPos.x, zIndex: 999999, background: 'rgba(0,0,0,0.75)', color: 'white', fontSize: 11, borderRadius: 4, padding: '4px 8px', pointerEvents: 'none', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
           Apply to section or newsletter
         </div>,
         document.body
