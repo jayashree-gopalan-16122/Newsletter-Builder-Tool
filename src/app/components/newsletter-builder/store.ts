@@ -920,26 +920,87 @@ export function useBuilderStore() {
   const loadLibrarySections = useCallback((libs: LibrarySection[]) => {
     scratchModeRef.current = false;
     const visSlots = contentStoreRef.current[FEATURE_VIS_KEY]?.slots;
-    const next: CanvasSection[] = libs.map(lib => {
-      const catKey = categoryKey(lib.category);
-      const storedSlots = contentStoreRef.current[catKey]?.slots || {};
-      let els = injectSlots(htmlToElements(lib.html), storedSlots);
-      if (['C1', 'C2', 'C3'].includes(lib.code) && visSlots && Object.keys(visSlots).length > 0) {
-        els = applyFeatureVisibility(els, visSlots, lib.code);
+    // Build lookup: category → library section (one variant per category from target template)
+    const libByCat = new Map<string, LibrarySection>();
+    for (const lib of libs) libByCat.set(lib.category, lib);
+    setCanvas(prev => {
+      let next: CanvasSection[];
+      if (prev.length === 0) {
+        // Empty canvas: populate from template with category-store injection (original behaviour)
+        next = libs.map(lib => {
+          const catKey = categoryKey(lib.category);
+          const storedSlots = contentStoreRef.current[catKey]?.slots || {};
+          let els = injectSlots(htmlToElements(lib.html), storedSlots);
+          if (['C1', 'C2', 'C3'].includes(lib.code) && visSlots && Object.keys(visSlots).length > 0) {
+            els = applyFeatureVisibility(els, visSlots, lib.code);
+          }
+          return { id: uid(), libraryCode: lib.code, name: lib.name, category: lib.category, elements: els, styles: { ...defaultSectionStyles } };
+        });
+      } else {
+        // Non-empty canvas: current canvas is the structure source of truth.
+        // Preserve every instance (including duplicates) with its own independent content.
+        next = prev.map(section => {
+          const lib = libByCat.get(section.category);
+          if (!lib) return { ...section, id: uid() };
+          const instanceSlots = extractSlots(section.elements);
+          let els = injectSlots(htmlToElements(lib.html), instanceSlots);
+          if (['C1', 'C2', 'C3'].includes(lib.code) && visSlots && Object.keys(visSlots).length > 0) {
+            els = applyFeatureVisibility(els, visSlots, lib.code);
+          }
+          return { id: uid(), libraryCode: lib.code, name: lib.name, category: lib.category, elements: els, styles: { ...defaultSectionStyles } };
+        });
       }
-      return {
-        id: uid(),
-        libraryCode: lib.code,
-        name: lib.name,
-        category: lib.category,
-        elements: els,
-        styles: { ...defaultSectionStyles },
-      };
+      pushHist(next);
+      return next;
     });
-    setCanvas(next);
     setSelectedId(null);
     setSelectedElementId(null);
-    pushHist(next);
+  }, [pushHist]);
+
+  // Switch to a custom template while preserving current canvas structure (instances + order + per-instance content).
+  // Uses the current canvas as the source of truth for section count and order; the supplied template
+  // sections provide the design variant for each category. Empty canvas falls back to loading directly.
+  const applyCanvasTemplate = useCallback((templateSections: CanvasSection[]) => {
+    scratchModeRef.current = false;
+    const visSlots = contentStoreRef.current[FEATURE_VIS_KEY]?.slots;
+    // Build lookup: category → first matching template section (one design variant per category)
+    const tplByCat = new Map<string, CanvasSection>();
+    for (const s of templateSections) {
+      if (!tplByCat.has(s.category)) tplByCat.set(s.category, s);
+    }
+    setCanvas(prev => {
+      let next: CanvasSection[];
+      if (prev.length === 0) {
+        // Empty canvas: load template sections directly (same as loadCanvasSections)
+        next = templateSections.map(s => {
+          const catKey = categoryKey(s.category);
+          const storedSlots = contentStoreRef.current[catKey]?.slots || {};
+          let els = injectSlots(s.elements, storedSlots);
+          if (['C1', 'C2', 'C3'].includes(s.libraryCode) && visSlots && Object.keys(visSlots).length > 0) {
+            els = applyFeatureVisibility(els, visSlots, s.libraryCode);
+          }
+          return { ...s, id: uid(), elements: els };
+        });
+      } else {
+        // Non-empty canvas: current canvas is the structure source of truth.
+        // Preserve every instance (including duplicates) with its own independent content.
+        next = prev.map(section => {
+          const tpl = tplByCat.get(section.category);
+          if (!tpl) return { ...section, id: uid() };
+          const instanceSlots = extractSlots(section.elements);
+          // Deep-clone template elements to avoid shared references across duplicate instances
+          let els = injectSlots(JSON.parse(JSON.stringify(tpl.elements)), instanceSlots);
+          if (['C1', 'C2', 'C3'].includes(tpl.libraryCode) && visSlots && Object.keys(visSlots).length > 0) {
+            els = applyFeatureVisibility(els, visSlots, tpl.libraryCode);
+          }
+          return { ...tpl, id: uid(), elements: els };
+        });
+      }
+      pushHist(next);
+      return next;
+    });
+    setSelectedId(null);
+    setSelectedElementId(null);
   }, [pushHist]);
 
   // Library
@@ -1223,6 +1284,7 @@ export function useBuilderStore() {
 body { margin: 0; padding: 0; width: 100% !important; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
 img { border: 0; outline: none; text-decoration: none; -ms-interpolation-mode: bicubic; display: block; max-width: 100%; }
 table { border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+a { text-decoration: none; }
 
 /* iOS Mail (especially in dark mode) renders standalone emoji entities at
    the system's default emoji size — 30-40px — even when the surrounding
@@ -1479,7 +1541,7 @@ ${sectionsHtmlAcc}
     replaceElement, getSelectedElement,
     deleteSelectedElement, duplicateSelectedElement,
     applyStylesGlobally, applyElementGlobally,
-    clearAll, loadLibrarySections, loadCanvasSections,
+    clearAll, loadLibrarySections, loadCanvasSections, applyCanvasTemplate,
     getContentStore, setContentStoreData,
     injectSavedContent, clearContentStore,
     saveToLibrary, importHtml,

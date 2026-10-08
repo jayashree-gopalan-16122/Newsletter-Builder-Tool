@@ -40,7 +40,9 @@ export function extractSlots(elements: SectionElement[]): SlotRecord {
         if (text.trim() || href) slots[slot] = { text: text.trim(), href };
       } else {
         const text = getElementContent(el);
-        if (text?.trim()) slots[slot] = text;
+        if (text !== undefined && text !== null && text !== '') {
+          slots[slot] = text;
+        }
       }
     }
     el.children?.forEach(walk);
@@ -76,7 +78,7 @@ export function injectSlots(elements: SectionElement[], slots: SlotRecord): Sect
           updated = newEl;
         }
       } else {
-        if (typeof value === 'string' && value.trim()) {
+        if (typeof value === 'string' && value !== '') {
           updated = { ...el, content: value, children: undefined };
         }
       }

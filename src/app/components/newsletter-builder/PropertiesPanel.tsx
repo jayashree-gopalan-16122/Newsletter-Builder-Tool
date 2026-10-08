@@ -14,6 +14,7 @@ import {
   Palette, Type, Settings, Image as ImageIcon, Link as LinkIcon, Sliders, ChevronDown,
   ChevronRight, Save, Paintbrush, AlertTriangle,
   Copy, Trash2, MoveVertical, Sun, Lock, Unlock, Plus, ImagePlus, Square, LayoutTemplate, X,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify,
 } from 'lucide-react';
 
 interface Props {
@@ -1167,6 +1168,8 @@ export function PropertiesPanel({
     [library]
   );
   const [aspectLocked, setAspectLocked] = useState(true);
+  // Align icon-button tooltips (hover-only, portal-rendered to escape panel clipping)
+  const [alignTooltip, setAlignTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   // Link Color mode — persists while an element is selected, resets on element change
   const [linkColorMode, setLinkColorMode] = useState<'light' | 'dark'>('light');
   useEffect(() => {
@@ -1669,9 +1672,51 @@ export function PropertiesPanel({
                     style={{ fontWeight: 600, textDecoration: 'line-through' }}>S</button>
                 </div>
                 <FieldWithApply propKeys={['textAlign']}>
-                <SelectField label="Align" value={elementInfo.textAlign || 'left'}
-                  options={[{ label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' }, { label: 'Justify', value: 'justify' }]}
-                  onChange={v => wrappedUpdateElementCommit({ textAlign: v })} />
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 500 }}>Align</span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[
+                      { value: 'left', Icon: AlignLeft, label: 'Left' },
+                      { value: 'center', Icon: AlignCenter, label: 'Center' },
+                      { value: 'right', Icon: AlignRight, label: 'Right' },
+                      { value: 'justify', Icon: AlignJustify, label: 'Justify' },
+                    ].map(({ value, Icon, label }) => {
+                      const isActive = (elementInfo.textAlign || 'left') === value;
+                      return (
+                        <button
+                          key={value}
+                          onClick={() => wrappedUpdateElementCommit({ textAlign: value })}
+                          onMouseEnter={e => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setAlignTooltip({ text: label, x: rect.left + rect.width / 2, y: rect.top - 8 });
+                          }}
+                          onMouseLeave={() => setAlignTooltip(null)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 32,
+                            height: 32,
+                            borderRadius: 6,
+                            border: isActive ? '1.5px solid #2563EB' : '1.5px solid #E5E7EB',
+                            background: isActive ? '#EFF6FF' : 'white',
+                            color: isActive ? '#2563EB' : '#6B7280',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Icon size={14} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {alignTooltip && createPortal(
+                  <div style={{ position: 'fixed', left: alignTooltip.x, top: alignTooltip.y, transform: 'translate(-50%, -100%)', zIndex: 999999, background: 'rgba(0,0,0,0.75)', color: 'white', fontSize: 11, borderRadius: 4, padding: '4px 8px', pointerEvents: 'none', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
+                    {alignTooltip.text}
+                  </div>,
+                  document.body
+                )}
                 </FieldWithApply>
                 <FieldWithApply propKeys={['lineHeight']}>
                 <NumField label="Line Height" value={parseFloat(elementInfo.lineHeight) || 1.5}

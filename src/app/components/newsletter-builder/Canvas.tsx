@@ -3,6 +3,74 @@ import { CanvasSection, SectionElement, LibrarySection, PreviewMode, SectionStyl
 import { toReactAttrs } from './html-utils';
 import { GripVertical, Trash2, ChevronUp, ChevronDown, Plus, Minus, Copy } from 'lucide-react';
 
+// ─── Inline-edit content sanitisation ─────────────────────────
+
+// Normalises DOM-produced innerHTML from contentEditable commits so
+// spaces/breaks never round-trip as literal &nbsp;/<br> entity soup.
+function sanitiseEditedContent(html: string): string {
+  if (!html) return '';
+
+  // Use a temporary DOM element to parse and 
+  // clean the HTML — preserves tag structure
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+
+  // Walk all text nodes and clean entity strings
+  // that the browser wrote as literal text
+  const walker = document.createTreeWalker(
+    tmp,
+    NodeFilter.SHOW_TEXT,
+    null
+  );
+
+  const textNodes: Text[] = [];
+  let node = walker.nextNode();
+  while (node) {
+    textNodes.push(node as Text);
+    node = walker.nextNode();
+  }
+
+  for (const textNode of textNodes) {
+    let text = textNode.nodeValue || '';
+    // Replace literal &nbsp; entity strings
+    text = text.replace(/&nbsp;/g, '\u00A0');
+    // Normalise non-breaking spaces to regular spaces
+    text = text.replace(/\u00A0/g, ' ');
+    // Do NOT collapse multiple spaces — intentional
+    // spaces must be preserved exactly as typed
+    textNode.nodeValue = text;
+  }
+
+  // IMPORTANT: Do NOT touch <br> tags — they are
+  // structural line breaks intentionally placed
+  // in template HTML. Removing them merges lines.
+
+  // Remove div/p wrappers browser may insert
+  // but keep their text content
+  tmp.querySelectorAll('div, p').forEach(el => {
+    const text = document.createTextNode(
+      ' ' + el.textContent + ' '
+    );
+    el.replaceWith(text);
+  });
+
+  // Get the cleaned HTML
+  // innerHTML preserves all spaces exactly
+  // Do NOT use innerText — it collapses spaces
+  let clean = tmp.innerHTML;
+
+  // Only trim trailing whitespace — NEVER leading
+  // Leading spaces are intentional user edits
+  clean = clean.trimEnd();
+
+  // Preserve space-only edits as single space
+  // Never return empty string — element must 
+  // stay in DOM
+  if (clean.replace(/\s/g, '') === '') return ' ';
+
+  return clean;
+}
+
 // ─── Feature group utilities ──────────────────────────────────
 
 function isFeatureSection(code: string): boolean {
@@ -305,8 +373,38 @@ interface RenderProps {
   onImageHover: (info: { elId: string; rect: DOMRect } | null) => void;
 }
 
+// Canvas selection is intentionally limited to meaningful design objects.
+// Email HTML contains many layout-only wrappers (table/tr/td/div, etc.) that
+// must remain in the DOM for rendering/export but should not surface as
+// accidental selections when they have no visible styling of their own.
+function isCanvasSelectable(el: SectionElement): boolean {
+  if (el.tag === 'br') return false;
+  if (el.type !== 'container') return true;
+
+  const s = el.styles || {};
+  const hasVisibleBackground = !!(
+    s.backgroundColor ||
+    s.backgroundImage ||
+    (s.background && s.background !== 'none' && s.background !== 'transparent')
+  );
+  const hasVisibleBorder = !!(
+    (s.borderWidth && s.borderWidth !== '0' && s.borderWidth !== '0px') ||
+    (s.borderTopWidth && s.borderTopWidth !== '0' && s.borderTopWidth !== '0px') ||
+    (s.borderRightWidth && s.borderRightWidth !== '0' && s.borderRightWidth !== '0px') ||
+    (s.borderBottomWidth && s.borderBottomWidth !== '0' && s.borderBottomWidth !== '0px') ||
+    (s.borderLeftWidth && s.borderLeftWidth !== '0' && s.borderLeftWidth !== '0px')
+  );
+  const hasVisibleShape = !!(
+    (s.borderRadius && s.borderRadius !== '0' && s.borderRadius !== '0px') ||
+    (s.boxShadow && s.boxShadow !== 'none')
+  );
+
+  return hasVisibleBackground || hasVisibleBorder || hasVisibleShape;
+}
+
 function RenderElement({ el, selectedElementId, flashedElementIds, onSelectEl, onDoubleClickEl, onImageHover }: RenderProps) {
-  const isSelected = selectedElementId === el.id;
+  const isSelectable = isCanvasSelectable(el);
+  const isSelected = isSelectable && selectedElementId === el.id;
   const isFlashed = flashedElementIds?.includes(el.id);
 
   // Build React style object (already camelCase)
@@ -351,6 +449,19 @@ function RenderElement({ el, selectedElementId, flashedElementIds, onSelectEl, o
     (style as any).justifyContent = 'center';
   }
 
+  // Space-only text content renders with near-zero width — force a minimum
+  // width so adjacent text doesn't visually collapse to the left
+  if (el.content !== undefined && el.content !== null && el.content.trim() === '' && el.content.length > 0) {
+    style.minWidth = '1em';
+    style.display = style.display || 'inline-block';
+  }
+
+  // Leading spaces in text content get collapsed by default CSS white-space
+  // handling — preserve them visually without affecting other text elements
+  if (el.type === 'text' && el.content && typeof el.content === 'string' && el.content.startsWith(' ')) {
+    style.whiteSpace = style.whiteSpace || 'pre-wrap';
+  }
+
   // Convert HTML attrs to React props
   const reactAttrs = el.attrs ? toReactAttrs(el.attrs) : {};
   // Mark non-anchor elements that carry a URL so the canvas CSS can show an indicator
@@ -359,11 +470,13 @@ function RenderElement({ el, selectedElementId, flashedElementIds, onSelectEl, o
   }
 
   const handleClick = (e: React.MouseEvent) => {
+    if (!isSelectable) return;
     e.stopPropagation();
     onSelectEl(el.id, e);
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
+    if (!isSelectable) return;
     e.stopPropagation();
     const dom = e.currentTarget as HTMLElement;
     onDoubleClickEl(el, dom);
@@ -381,11 +494,19 @@ function RenderElement({ el, selectedElementId, flashedElementIds, onSelectEl, o
           />
       ));
     }
-    // Inline-formatted content (bold, italic, color spans) stored as HTML string
-    if (el.content?.includes('<')) {
-      return <span dangerouslySetInnerHTML={{ __html: el.content }} />;
+    // Inline-formatted content (bold, italic, color spans) stored as HTML string.
+    // Detect real tags rather than a bare '<', so entities like &nbsp;/&amp; don't
+    // get misclassified as HTML.
+    const containsHtmlTags = el.content ? /<[a-zA-Z][^>]*>/i.test(el.content) : false;
+    if (containsHtmlTags) {
+      return <span dangerouslySetInnerHTML={{ __html: el.content! }} />;
     }
-    return el.content || null;
+    // Never render null for text elements — empty content shows a non-breaking
+    // space so the element stays in the DOM and remains clickable/editable
+    if (el.content === ' ' || (el.content !== undefined && el.content !== null && el.content.trim() === '' && el.content.length > 0)) {
+      return '\u00A0';
+    }
+    return el.content || '\u00A0';
   };
 
   if (el.tag === 'img') {
@@ -440,6 +561,20 @@ function RenderElement({ el, selectedElementId, flashedElementIds, onSelectEl, o
 }
 
 // ─── Main Canvas ──────────────────────────────────────────────
+
+function isElementInSection(
+  elements: SectionElement[],
+  elementId: string | null
+): boolean {
+  if (!elementId) return false;
+  for (const el of elements) {
+    if (el.id === elementId) return true;
+    if (el.children && isElementInSection(el.children, elementId)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function Canvas({
   sections, selectedId, selectedElementId, previewMode, library,
@@ -635,10 +770,7 @@ export function Canvas({
   const handleContentClick = (e: React.MouseEvent, sectionId: string) => {
     e.stopPropagation();
     onSelect(sectionId);
-    const sec = sections.find(s => s.id === sectionId);
-    if (sec && sec.elements.length > 0) {
-      onSelectEl(sec.elements[0].id);
-    }
+    onSelectEl(null);
   };
 
   const handleDoubleClickEl = useCallback((el: SectionElement, domEl: HTMLElement) => {
@@ -681,6 +813,16 @@ export function Canvas({
     domEl.style.outline = '2px solid #004BE2';
     domEl.style.outlineOffset = '1px';
 
+    // Decode any previously double-encoded entities (from earlier corrupted
+    // saves) before the user edits, so re-saving doesn't re-encode them again
+    if (domEl.innerHTML.includes('&amp;')) {
+      domEl.innerHTML = domEl.innerHTML
+        .replace(/&amp;nbsp;/gi, ' ')
+        .replace(/&amp;lt;/gi, '<')
+        .replace(/&amp;gt;/gi, '>')
+        .replace(/&amp;amp;/gi, '&');
+    }
+
     // Show rich-text mini-toolbar on text selection; save range for formatting
     const handleSelChange = () => {
       const sel = window.getSelection();
@@ -718,11 +860,14 @@ export function Canvas({
       editingDomElRef.current = null;
       editingElIdRef.current = null;
       document.removeEventListener('selectionchange', handleSelChange);
-      // Save innerHTML (preserves inline <b>, <i>, <span style> formatting)
+      // Save innerHTML (preserves inline <b>, <i>, <span style> formatting),
+      // sanitised so plain spaces/breaks never persist as &nbsp;/<br> entities
       const sectionEl = domEl.closest('[data-section-id]') as HTMLElement | null;
       if (sectionEl) {
         const secId = sectionEl.getAttribute('data-section-id')!;
-        onPatchElement(secId, el.id, { html: domEl.innerHTML });
+        const rawHtml = domEl.innerHTML;
+        const sanitised = sanitiseEditedContent(rawHtml);
+        onPatchElement(secId, el.id, { html: sanitised });
       }
       domEl.removeEventListener('blur', cleanup);
       domEl.removeEventListener('keydown', handleKey);
@@ -1010,8 +1155,10 @@ export function Canvas({
 
           {sections.map((section, index) => {
             const isSelected = selectedId === section.id;
-            const isToolbarVisible = isSelected || visibleToolbar === section.id;
+            const hasSelectedChild = isElementInSection(section.elements, selectedElementId);
             const isFeatSec = isFeatureSection(section.libraryCode);
+            const isPointHovered = isFeatSec && featureGroupHover?.sectionId === section.id;
+            const isToolbarVisible = !hasSelectedChild && !isPointHovered && (isSelected || visibleToolbar === section.id);
             const visGroups = isFeatSec ? getVisibleGroupsInOrder(section.elements) : [];
             const nextHiddenGroup = isFeatSec ? getNextHiddenGroupN(section.elements) : null;
 
@@ -1038,8 +1185,13 @@ export function Canvas({
                       isToolbarVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
                     }`}
                     onMouseEnter={() => showToolbar(section.id)}
-                    onMouseLeave={scheduleHideToolbar}
                   >
+                    {/* Keep the toolbar and section as one continuous pointer interaction zone. */}
+                    <div
+                      aria-hidden="true"
+                      className="absolute top-full left-0 right-0 h-3"
+                      onMouseEnter={() => showToolbar(section.id)}
+                    />
                     <span className="text-[10px] text-[#a0aec0] px-1 max-w-[140px] truncate" style={{ fontWeight: 500 }}>{section.libraryCode} · {section.name}</span>
                     <div className="w-px h-3.5 bg-[#334155] mx-0.5" />
                     <button onClick={e => { e.stopPropagation(); index > 0 && onMove(index, index - 1); }} disabled={index === 0} className="p-1 text-white/50 hover:text-white disabled:text-white/20 rounded hover:bg-white/10 transition-colors" title="Move Up"><ChevronUp size={13} /></button>
@@ -1085,7 +1237,16 @@ export function Canvas({
                           el={el}
                           selectedElementId={selectedElementId}
                           flashedElementIds={flashedElementIds}
-                          onSelectEl={(elId, e) => { e.stopPropagation(); onSelect(section.id); onSelectEl(elId); }}
+                          onSelectEl={(elId, e) => {
+                            e.stopPropagation();
+                            onSelect(section.id);
+                            onSelectEl(elId);
+                            // Clear feature row controls immediately when any element is selected
+                            if (isFeatSec) {
+                              setFeatureGroupHover(null);
+                            }
+                            setVisibleToolbar(null);
+                          }}
                           onDoubleClickEl={handleDoubleClickEl}
                           onImageHover={() => {}}
                         />
@@ -1094,7 +1255,7 @@ export function Canvas({
                   </div>
 
                   {/* Feature group action bar — shown on hover of each visible group */}
-                  {isFeatSec && featureGroupHover?.sectionId === section.id && (() => {
+                  {isFeatSec && !hasSelectedChild && featureGroupHover?.sectionId === section.id && (() => {
                     const hoveredSlotN = featureGroupHover.groupN;
                     const isFirst = visGroups.length > 0 && Number(visGroups[0].attrs?.['data-feature-group']) === hoveredSlotN;
                     const showMinus = !isFirst && visGroups.length > 1;

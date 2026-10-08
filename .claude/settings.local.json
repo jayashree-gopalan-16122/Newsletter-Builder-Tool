@@ -30,7 +30,11 @@
       "Bash(zip -r \"newsletter-builder-May23.zip\" \"newsletter-builder-recovered 3\")",
       "Bash(cp -r \"/Users/jaya-16122/Desktop/newsletter-builder-recovered 3\" \"/Users/jaya-16122/Desktop/newsletter-builder-2026-05-25-backup\" && echo \"Copy complete\")",
       "Bash(node node_modules/vite/bin/vite.js build)",
-      "Bash(node_modules/.bin/vite build *)"
+      "Bash(node_modules/.bin/vite build *)",
+      "Bash(awk 'NR>=1718 && NR<=1762' /Users/jaya-16122/Downloads/merged-reality-v2.html)",
+      "Bash(python3 -c ' *)",
+      "Bash(find /Users/jaya-16122 -name \"merged-reality-v2.html\" 2>/dev/null | head -5)",
+      "Bash(find /private/tmp -name \"*.html\" 2>/dev/null | head -10)"
     ],
     "additionalDirectories": [
       "/Users/jaya-16122/Desktop"

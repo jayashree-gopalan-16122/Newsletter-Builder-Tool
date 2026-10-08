@@ -63,12 +63,12 @@ const A3 = sec('a3', 'A3', 'Header — Dark Bold', 'Headers', 'Custom Variant',
 // ═══════════════════════════════════════════════════════════════
 
 const B1 = sec('b1', 'B1', 'Left-Aligned Hero (BG Image)', 'Heroes', 'Dec 2025',
-`<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-image:url('https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&h=300&fit=crop');background-size:cover;background-position:center;">
+`<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#141a38;">
   <tr>
     <td style="padding:60px 40px;background-color:rgba(0,0,0,0.55);">
       <h1 data-slot="heading" style="font-family:Helvetica Neue,Arial,sans-serif;font-size:34px;font-weight:700;color:#ffffff;margin:0 0 14px;line-height:1.15;">Year in Review:<br/>2025 Highlights</h1>
       <p data-slot="subtext" style="font-family:Arial,sans-serif;font-size:15px;color:#e2e8f0;line-height:1.6;margin:0 0 18px;max-width:400px;">A look back at the biggest features and milestones of the year.</p>
-      <a href="#" data-slot="cta-primary" style="font-family:Arial,sans-serif;font-size:14px;font-weight:600;color:#FFDD53;text-decoration:underline;">Read more</a><img data-slot="image-main" src="" style="display:none" />
+      <a href="#" data-slot="cta-primary" style="font-family:Arial,sans-serif;font-size:14px;font-weight:600;color:#96BCFF;text-decoration:none;">Read more</a><img data-slot="image-main" src="" style="display:none" />
     </td>
   </tr>
 </table>`);
@@ -82,7 +82,7 @@ const B2 = sec('b2', 'B2', 'Hero — Split Text Left', 'Heroes', 'Custom Variant
           <td width="52%" valign="middle" style="padding-right:24px;">
             <h1 data-slot="heading" style="font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:700;color:#0E0E0E;margin:0 0 14px;line-height:1.2;">Built for Speed, Designed for You</h1>
             <p data-slot="subtext" style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#4a5568;line-height:1.6;margin:0 0 20px;">This month brings performance boosts, new integrations, and a fresh look across the board.</p>
-            <a href="#" data-slot="cta-primary" style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:600;color:#004BE2;text-decoration:underline;">Read more</a>
+            <a href="#" data-slot="cta-primary" style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:600;color:#004BE2;text-decoration:none;">Read more</a>
           </td>
           <td width="48%" valign="middle">
             <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=270&h=220&fit=crop" width="270" height="220" alt="Hero" data-slot="image-main" style="display:block;width:100%;height:auto;border-radius:12px;" />
@@ -343,7 +343,7 @@ const D1 = sec('d1', 'D1', 'Customer Spotlight (Glass Card)', 'Testimonials', 'A
       <tr><td style="padding:30px;">
         <h3 data-slot="label" style="font-family:Arial,sans-serif;font-size:13px;font-weight:600;color:#718096;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 14px;">Customer Spotlight</h3>
         <p data-slot="quote" style="font-family:Arial,sans-serif;font-size:15px;color:#2d3748;line-height:1.7;font-style:italic;margin:0 0 6px;">"The AR annotation feature in Zoho Lens helped us reduce on-site visits by 60%. Our field engineers can now guide repairs remotely with pinpoint accuracy."</p>
-        <p data-slot="read-more" style="font-family:Arial,sans-serif;font-size:13px;margin:0 0 18px;"><a href="#" style="color:#004BE2;text-decoration:underline;">Read full story</a></p>
+        <p data-slot="read-more" style="font-family:Arial,sans-serif;font-size:13px;margin:0 0 18px;"><a href="#" style="color:#004BE2;text-decoration:none;">Read full story</a></p>
         <p data-slot="name" style="font-family:Arial,sans-serif;font-size:14px;font-weight:600;color:#0E0E0E;margin:0;text-align:center;">Priya Sharma</p>
         <p data-slot="role" style="font-family:Arial,sans-serif;font-size:12px;color:#718096;margin:2px 0 0;text-align:center;">VP Engineering, FieldForce Pro</p>
         <img data-slot="avatar" src="" style="display:none" />
@@ -360,7 +360,7 @@ const D2 = sec('d2', 'D2', 'Testimonial — Card with Avatar', 'Testimonials', '
       <tr><td style="padding:30px;">
         <h3 data-slot="label" style="font-family:Arial,sans-serif;font-size:13px;font-weight:600;color:#718096;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 14px;">Customer Spotlight</h3>
         <p data-slot="quote" style="font-family:Arial,sans-serif;font-size:15px;color:#2d3748;line-height:1.7;font-style:italic;margin:0 0 6px;">"The AR annotation feature in Zoho Lens helped us reduce on-site visits by 60%. Our field engineers can now guide repairs remotely with pinpoint accuracy."</p>
-        <p data-slot="read-more" style="font-family:Arial,sans-serif;font-size:13px;margin:0 0 20px;"><a href="#" style="color:#004BE2;text-decoration:underline;">Read full story</a></p>
+        <p data-slot="read-more" style="font-family:Arial,sans-serif;font-size:13px;margin:0 0 20px;"><a href="#" style="color:#004BE2;text-decoration:none;">Read full story</a></p>
         <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=50&h=50&fit=crop" width="50" height="50" alt="Avatar" data-slot="avatar" style="display:block;border-radius:50%;margin:0 auto 12px;" />
         <p data-slot="name" style="font-family:Arial,sans-serif;font-size:14px;font-weight:600;color:#0E0E0E;margin:0;text-align:center;">Priya Sharma</p>
         <p data-slot="role" style="font-family:Arial,sans-serif;font-size:12px;color:#718096;margin:2px 0 0;text-align:center;">VP Engineering, FieldForce Pro</p>
@@ -380,7 +380,7 @@ const D3 = sec('d3', 'D3', 'Testimonial — Avatar First', 'Testimonials', 'Cust
         <p data-slot="role" style="font-family:Arial,sans-serif;font-size:12px;color:#718096;margin:0 0 18px;text-align:center;">VP Engineering, FieldForce Pro</p>
         <h3 data-slot="label" style="font-family:Arial,sans-serif;font-size:13px;font-weight:600;color:#718096;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 14px;">Customer Spotlight</h3>
         <p data-slot="quote" style="font-family:Arial,sans-serif;font-size:15px;color:#2d3748;line-height:1.7;font-style:italic;margin:0 0 6px;">"The AR annotation feature in Zoho Lens helped us reduce on-site visits by 60%. Our field engineers can now guide repairs remotely with pinpoint accuracy."</p>
-        <p data-slot="read-more" style="font-family:Arial,sans-serif;font-size:13px;margin:0;"><a href="#" style="color:#004BE2;text-decoration:underline;">Read full story</a></p>
+        <p data-slot="read-more" style="font-family:Arial,sans-serif;font-size:13px;margin:0;"><a href="#" style="color:#004BE2;text-decoration:none;">Read full story</a></p>
       </td></tr>
     </table>
     <table cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;"><tr><td style="background:#004BE2;border-radius:6px;"><a href="#" data-slot="cta-button" style="display:inline-block;font-family:Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;padding:12px 28px;">Read all customer stories</a></td></tr></table>

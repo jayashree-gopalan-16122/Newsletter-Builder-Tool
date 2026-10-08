@@ -184,7 +184,7 @@ export function BuilderLayout() {
         });
         store.setContentStoreData(merged);
       }
-      store.loadCanvasSections(tpl.canvasSections);
+      store.applyCanvasTemplate(tpl.canvasSections);
       setActiveCustomTemplateId(tpl.id);
       setActiveBuiltinTemplate(null);
       toast.success(`Loaded "${tpl.name}"`);
